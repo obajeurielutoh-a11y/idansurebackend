@@ -555,19 +555,28 @@ app.UseSwagger(c =>
 });
 
 // Enable Swagger UI in Development or when explicitly allowed via configuration (Swagger:Enabled=true)
-var enableSwaggerUi = app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Swagger:Enabled", false);
-if (enableSwaggerUi)
-{
+// var enableSwaggerUi = app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Swagger:Enabled", false);
+// if (enableSwaggerUi)
+// {
+// app.UseSwaggerUI(c =>
+// {
+//     c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
+//     c.DisplayRequestDuration();
+//     c.EnableTryItOutByDefault();
+//     c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None);
+//     c.ConfigObject.AdditionalItems["persistAuthorization"] = true;
+// });
+// }
+app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
+    c.RoutePrefix = "swagger";
     c.DisplayRequestDuration();
     c.EnableTryItOutByDefault();
     c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None);
     c.ConfigObject.AdditionalItems["persistAuthorization"] = true;
 });
-}
-
 // Rate limiting early
 app.UseIpRateLimiting();
 

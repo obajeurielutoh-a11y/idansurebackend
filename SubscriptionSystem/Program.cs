@@ -243,13 +243,35 @@ builder.Services.AddScoped<IGroupChatService, GroupChatService>();
 builder.Services.AddScoped<ICommentRepository, CommentRepository>();
 
 // JWT Authentication Configuration
-var jwtKey = builder.Configuration["Jwt:Key"];
-var jwtIssuer = builder.Configuration["Jwt:Issuer"];
-var jwtAudience = builder.Configuration["Jwt:Audience"];
+// Read JWT configuration from configuration (appsettings / env) or common env names as fallback
+string GetConfigOrEnv(string configKey, string[] envFallbacks)
+{
+    var v = builder.Configuration[configKey];
+    if (!string.IsNullOrEmpty(v)) return v;
+    foreach (var name in envFallbacks)
+    {
+        var ev = Environment.GetEnvironmentVariable(name);
+        if (!string.IsNullOrEmpty(ev)) return ev;
+    }
+    return null;
+}
+
+var jwtKey = GetConfigOrEnv("Jwt:Key", new[] { "Jwt__Key", "JWT_KEY" });
+var jwtIssuer = GetConfigOrEnv("Jwt:Issuer", new[] { "Jwt__Issuer", "JWT_ISSUER" });
+var jwtAudience = GetConfigOrEnv("Jwt:Audience", new[] { "Jwt__Audience", "JWT_AUDIENCE" });
 
 if (string.IsNullOrEmpty(jwtKey) || string.IsNullOrEmpty(jwtIssuer) || string.IsNullOrEmpty(jwtAudience))
 {
-    throw new InvalidOperationException("JWT configuration is incomplete. Please check your appsettings.json file.");
+    var guidance = "Missing JWT configuration. Set these environment variables in your host:\n" +
+                   " - Jwt__Key (or JWT_KEY)\n" +
+                   " - Jwt__Issuer (or JWT_ISSUER)\n" +
+                   " - Jwt__Audience (or JWT_AUDIENCE)\n" +
+                   "On Render: go to your service -> Environment -> Environment Variables, and add them there.\n" +
+                   "For local development you can keep a .env file with keys using double-underscore (Jwt__Key=...).";
+
+    // Log guidance to console for deploy troubleshooting (safe to expose guidance but not secret values)
+    Console.Error.WriteLine(guidance);
+    throw new InvalidOperationException("JWT configuration is incomplete. Please check environment variables or appsettings.json.");
 }
 builder.Services.AddAuthentication(x =>
 {

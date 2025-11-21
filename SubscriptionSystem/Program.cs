@@ -567,16 +567,12 @@ app.UseSwagger(c =>
 //     c.ConfigObject.AdditionalItems["persistAuthorization"] = true;
 // });
 // }
-app.UseSwagger();
-app.UseSwaggerUI(c =>
-{
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
-    c.RoutePrefix = "swagger";
-    c.DisplayRequestDuration();
-    c.EnableTryItOutByDefault();
-    c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None);
-    c.ConfigObject.AdditionalItems["persistAuthorization"] = true;
-});
+
+ app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
+        c.RoutePrefix = string.Empty;  // Make Swagger UI the default page at root path
+    });
 // Rate limiting early
 app.UseIpRateLimiting();
 
@@ -585,6 +581,9 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
+app.UseSwagger();
+app.UseSwaggerUI();
+
 
 // Routing must come before CORS
 app.UseRouting();
@@ -605,4 +604,6 @@ app.MapHub<PredictionHub>("/predictionHub");
 app.Map("/mcp", SubscriptionSystem.Infrastructure.Mcp.McpWebSocketHandler.HandleAsync);
 // Start the application
 app.Run();
+
+
 

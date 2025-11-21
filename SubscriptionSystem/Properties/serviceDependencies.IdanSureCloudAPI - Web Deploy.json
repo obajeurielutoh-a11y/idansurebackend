@@ -1,0 +1,24 @@
+{
+  "dependencies": {
+    "apis1": {
+      "resourceId": "/subscriptions/[parameters('subscriptionId')]/resourceGroups/[parameters('resourceGroupName')]/providers/Microsoft.ApiManagement/service/IdanSureApiCloudeServices/apis/IdanSureAPICloudService",
+      "type": "apis.azure"
+    },
+    "redis1": {
+      "serviceConnectorResourceId": "/subscriptions/[parameters('subscriptionId')]/resourceGroups/[parameters('resourceGroupName')]/providers/Microsoft.Web/sites/IdanSureCloudAPI/providers/Microsoft.ServiceLinker/linkers/ConnectionStringsRedisConnection_3F2EDB146D",
+      "secretStore": "AzureAppSettings",
+      "resourceId": "/subscriptions/[parameters('subscriptionId')]/resourceGroups/[parameters('resourceGroupName')]/providers/Microsoft.Cache/Redis/sendotp",
+      "type": "redis.azure",
+      "connectionId": "ConnectionStrings:RedisConnection",
+      "dynamicId": null
+    },
+    "signalr1": {
+      "serviceConnectorResourceId": "/subscriptions/[parameters('subscriptionId')]/resourceGroups/[parameters('resourceGroupName')]/providers/Microsoft.Web/sites/IdanSureCloudAPI/providers/Microsoft.ServiceLinker/linkers/AzureSignalRConnectionString_1388C600B8",
+      "secretStore": "AzureAppSettings",
+      "resourceId": "/subscriptions/[parameters('subscriptionId')]/resourceGroups/[parameters('resourceGroupName')]/providers/Microsoft.SignalRService/SignalR/OTPSendingServices",
+      "type": "signalr.azure",
+      "connectionId": "Azure:SignalR:ConnectionString",
+      "dynamicId": null
+    }
+  }
+}

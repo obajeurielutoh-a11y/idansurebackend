@@ -1,0 +1,78 @@
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using SubscriptionSystem.Application.Interfaces;
+using System.Security.Claims;
+using System.Threading.Tasks;
+using System.Linq;
+
+namespace SubscriptionSystem.Infrastructure.Middleware
+{
+    public class JwtMiddleware
+    {
+        private readonly RequestDelegate _next;
+        private readonly IConfiguration _configuration;
+
+        public JwtMiddleware(RequestDelegate next, IConfiguration configuration)
+        {
+            _next = next;
+            _configuration = configuration;
+        }
+
+        public async Task InvokeAsync(
+            HttpContext context,
+            IJwtService jwtService,
+            IApiKeyService apiKeyService
+        )
+        {
+            var token = context.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
+            var apiKey = context.Request.Headers["X-API-Key"].FirstOrDefault();
+
+
+            if (token != null)
+                await AttachUserToContext(context, token, jwtService);
+            else if (apiKey != null)
+                await AttachUserToContextByApiKey(context, apiKey, apiKeyService);
+
+            await _next(context);
+        }
+
+        private async Task AttachUserToContext(
+            HttpContext context,
+            string token,
+            IJwtService jwtService
+        )
+        {
+            try
+            {
+                var principal = jwtService.GetPrincipalFromExpiredToken(token);
+                context.User = principal;
+            }
+            catch
+            {
+                // Do nothing if token is invalid
+            }
+        }
+
+        private async Task AttachUserToContextByApiKey(
+            HttpContext context,
+            string apiKey,
+            IApiKeyService apiKeyService
+        )
+        {
+            var user = await apiKeyService.GetUserByApiKeyAsync(apiKey);
+            if (user != null)
+            {
+                var claims = new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                    new Claim(ClaimTypes.Email, user.Email),
+                    new Claim(ClaimTypes.Role, user.Role),
+                    new Claim("ApiKey", apiKey)
+                };
+
+                var identity = new ClaimsIdentity(claims, "ApiKey");
+                context.User = new ClaimsPrincipal(identity);
+            }
+        }
+    }
+}

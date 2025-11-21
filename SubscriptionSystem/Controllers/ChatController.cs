@@ -139,8 +139,15 @@ namespace SubscriptionSystem.API.Controllers
                 });
             }
 
-            // Check subscription status, but do not block responses for unsubscribed users; we'll send a capped AI reply and prompt payment
+            // Check subscription status
             var hasSub = await HasActiveSubscriptionByUserIdAsync(currentUserId);
+
+            // Track free conversations per user (allow 3 free conversations before asking for subscription)
+            var freeConversationKey = $"ai-free-conv:{currentUserId}:{DateTime.UtcNow:yyyyMMdd}";
+            var freeConvStr = await SafeGetStringAsync(freeConversationKey);
+            var freeConversationCount = int.TryParse(freeConvStr, out var freeCount) ? freeCount : 0;
+            var maxFreeConversations = _configuration.GetValue<int>("Ai:MaxFreeConversations", 3);
+            var shouldPromptPayment = !hasSub && freeConversationCount >= maxFreeConversations;
 
             try
             {
@@ -152,26 +159,39 @@ namespace SubscriptionSystem.API.Controllers
 
                 var aiText = await _aiChatProvider.GetResponseAsync(currentUserId, request.Message!, tone, scope, context);
 
-                // Cap AI response to configured maximum characters
-                if (!string.IsNullOrEmpty(aiText) && aiText.Length > MaxAiResponseChars)
+                // For unsubscribed users after free limit, cap the response to medium level insights
+                if (shouldPromptPayment && !string.IsNullOrEmpty(aiText))
                 {
+                    // Cap to medium level response (first 300 chars of analysis)
+                    if (aiText.Length > 300)
+                    {
+                        aiText = aiText.Substring(0, 300) + "...\n\n💡 Want deeper insights and real-time alerts? Subscribe to IdanSure for full predictions and expert analysis!";
+                    }
+                }
+                else if (!string.IsNullOrEmpty(aiText) && aiText.Length > MaxAiResponseChars)
+                {
+                    // For subscribed users, use full response up to max chars
                     aiText = aiText.Substring(0, MaxAiResponseChars);
                 }
 
-                // rate count++ in distributed cache until midnight UTC
+                // Increment conversation counter
                 var expires = DateTimeOffset.UtcNow.Date.AddDays(1);
+                await SafeSetStringAsync(freeConversationKey, (freeConversationCount + 1).ToString(), new DistributedCacheEntryOptions { AbsoluteExpiration = expires });
+                
+                // Also increment daily cap
                 await SafeSetStringAsync(rateKey, (currentCount + 1).ToString(), new DistributedCacheEntryOptions { AbsoluteExpiration = expires });
 
                 // log analytics to file (JSONL)
                 await LogAiInteractionAsync(currentUserId, request.Message!, aiText);
                 var response = new AiChatResponseDto
                 {
-                    RequiresSubscription = !hasSub,
-                    Message = aiText
+                    RequiresSubscription = shouldPromptPayment,
+                    Message = aiText,
+                    ConversationsRemaining = !hasSub ? Math.Max(0, maxFreeConversations - freeConversationCount - 1) : null
                 };
 
-                // If user is unsubscribed, include a Paystack checkout URL so client can prompt payment, while still returning the capped AI text
-                if (!hasSub)
+                // If user has exhausted free conversations, include subscription prompt
+                if (shouldPromptPayment)
                 {
                     string subscribeUrlFallback = _configuration["Authentication:Frontend:BaseUrl"]?.TrimEnd('/') ?? "https://www.idansure.com";
                     subscribeUrlFallback = $"{subscribeUrlFallback}/subscribe";
@@ -192,19 +212,19 @@ namespace SubscriptionSystem.API.Controllers
                         if (init != null && init.IsSuccess && init.Data?.Data?.AuthorizationUrl != null)
                         {
                             response.SubscribeUrl = init.Data.Data.AuthorizationUrl;
-                            response.AgentDirective = "prompt_payment";
+                            response.AgentDirective = "prompt_payment_friendly";
                         }
                         else
                         {
                             response.SubscribeUrl = subscribeUrlFallback;
-                            response.AgentDirective = "prompt_payment";
+                            response.AgentDirective = "prompt_payment_friendly";
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Failed to initialize Paystack checkout for user {UserId}", currentUserId);
                         response.SubscribeUrl = subscribeUrlFallback;
-                        response.AgentDirective = "prompt_payment";
+                        response.AgentDirective = "prompt_payment_friendly";
                     }
                 }
 
@@ -240,12 +260,12 @@ namespace SubscriptionSystem.API.Controllers
                     var fallbackMsg = "I'm having trouble reaching the AI service right now. Please try again in a bit.";
                     var response = new AiChatResponseDto
                     {
-                        RequiresSubscription = !hasSub,
+                        RequiresSubscription = shouldPromptPayment,
                         Message = fallbackMsg,
-                        AgentDirective = !hasSub ? "prompt_payment" : null
+                        AgentDirective = shouldPromptPayment ? "prompt_payment_friendly" : null
                     };
 
-                    if (!hasSub)
+                    if (shouldPromptPayment)
                     {
                         string subscribeUrlFallback = _configuration["Authentication:Frontend:BaseUrl"]?.TrimEnd('/') ?? "https://www.idansure.com";
                         subscribeUrlFallback = $"{subscribeUrlFallback}/subscribe";
@@ -500,6 +520,7 @@ namespace SubscriptionSystem.API.Controllers
             public string? VoiceUrl { get; set; }
             public string? Transcript { get; set; }
             public string? AgentDirective { get; set; }
+            public int? ConversationsRemaining { get; set; }
         }
     }
 }

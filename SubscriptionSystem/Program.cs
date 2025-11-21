@@ -558,14 +558,14 @@ app.UseSwagger(c =>
 var enableSwaggerUi = app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Swagger:Enabled", false);
 if (enableSwaggerUi)
 {
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
-        c.DisplayRequestDuration();
-        c.EnableTryItOutByDefault();
-        c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None);
-        c.ConfigObject.AdditionalItems["persistAuthorization"] = true; // keep token across refreshes
-    });
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
+    c.DisplayRequestDuration();
+    c.EnableTryItOutByDefault();
+    c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None);
+    c.ConfigObject.AdditionalItems["persistAuthorization"] = true;
+});
 }
 
 // Rate limiting early

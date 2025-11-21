@@ -1,3 +1,5 @@
+using DotNetEnv;
+using System.IO;
 using Azure.Messaging.ServiceBus;
 using Microsoft.EntityFrameworkCore;
 using SubscriptionSystem.Application.Interfaces;
@@ -28,6 +30,34 @@ using System.Net.Http.Headers;
 using Microsoft.OpenApi.Models;
 using Microsoft.AspNetCore.HttpOverrides;
 using StackExchange.Redis;
+// Robustly load .env (search up parent directories) BEFORE building configuration
+string FindDotEnv()
+{
+    var dir = Directory.GetCurrentDirectory();
+    while (!string.IsNullOrEmpty(dir))
+    {
+        var candidate = Path.Combine(dir, ".env");
+        if (File.Exists(candidate)) return candidate;
+        dir = Path.GetDirectoryName(dir);
+    }
+    return null;
+}
+
+var dotenvPath = FindDotEnv();
+if (!string.IsNullOrEmpty(dotenvPath))
+{
+    DotNetEnv.Env.Load(dotenvPath);
+    Console.WriteLine($"Loaded .env from: {dotenvPath}");
+}
+else
+{
+    Console.WriteLine(".env file not found in current or parent directories.");
+}
+
+// Quick diagnostic (does NOT print secret values)
+var jwtPresent = Environment.GetEnvironmentVariable("Jwt__Key");
+Console.WriteLine($"Jwt__Key present: { (jwtPresent != null ? "yes" : "no") }, length: { (jwtPresent != null ? jwtPresent.Length.ToString() : "0") }");
+
 var builder = WebApplication.CreateBuilder(args);
 // Add services to the container
 

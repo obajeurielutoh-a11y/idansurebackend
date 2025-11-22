@@ -37,6 +37,7 @@ namespace SubscriptionSystem.API.Controllers
     private readonly IPaymentService _paymentService;
     private readonly string _uploadPath;
     private const int MaxAiResponseChars = 500; // limit AI response length
+    private readonly SubscriptionSystem.Infrastructure.Services.LanguageDetectionService _languageDetection;
 
         public ChatController(
             IGroupChatService groupChatService,
@@ -49,7 +50,8 @@ namespace SubscriptionSystem.API.Controllers
             ITranscriptionService transcriptionService,
             IConfiguration configuration,
             IDistributedCache cache,
-            IPaymentService paymentService)
+            IPaymentService paymentService,
+            SubscriptionSystem.Infrastructure.Services.LanguageDetectionService languageDetection)
         {
             _groupChatService = groupChatService;
             _userManagementService = userManagementService;
@@ -62,6 +64,7 @@ namespace SubscriptionSystem.API.Controllers
             _cache = cache;
             _paymentService = paymentService;
             _uploadPath = Path.Combine(environment.WebRootPath, "uploads");
+            _languageDetection = languageDetection ?? throw new ArgumentNullException(nameof(languageDetection));
         }
 
         private async Task<bool> HasActiveSubscriptionAsync(string email)
@@ -142,11 +145,11 @@ namespace SubscriptionSystem.API.Controllers
             // Check subscription status
             var hasSub = await HasActiveSubscriptionByUserIdAsync(currentUserId);
 
-            // Track free conversations per user (allow 3 free conversations before asking for subscription)
+            // Track free conversations per user (allow 10 free conversations before asking for subscription)
             var freeConversationKey = $"ai-free-conv:{currentUserId}:{DateTime.UtcNow:yyyyMMdd}";
             var freeConvStr = await SafeGetStringAsync(freeConversationKey);
             var freeConversationCount = int.TryParse(freeConvStr, out var freeCount) ? freeCount : 0;
-            var maxFreeConversations = _configuration.GetValue<int>("Ai:MaxFreeConversations", 3);
+            var maxFreeConversations = _configuration.GetValue<int>("Ai:MaxFreeConversations", 10);
             var shouldPromptPayment = !hasSub && freeConversationCount >= maxFreeConversations;
 
             try
@@ -157,21 +160,69 @@ namespace SubscriptionSystem.API.Controllers
                 var scope = string.IsNullOrWhiteSpace(request.Scope) ? analysis.Scope : request.Scope;
                 var context = string.IsNullOrWhiteSpace(request.Context) ? analysis.ContextSummary : request.Context;
 
-                var aiText = await _aiChatProvider.GetResponseAsync(currentUserId, request.Message!, tone, scope, context);
-
-                // For unsubscribed users after free limit, cap the response to medium level insights
-                if (shouldPromptPayment && !string.IsNullOrEmpty(aiText))
+                // Determine language using priority: explicit request > user preference > detected
+                var validLanguages = new[] { "en", "ig", "ha", "yo", "pcm" };
+                string? userLanguage = null;
+                if (!string.IsNullOrWhiteSpace(request.Language) && validLanguages.Contains(request.Language.ToLowerInvariant()))
                 {
-                    // Cap to medium level response (first 300 chars of analysis)
-                    if (aiText.Length > 300)
+                    userLanguage = request.Language.ToLowerInvariant();
+                }
+
+                var userDto = await _userManagementService.GetUserByIdAsync(currentUserId);
+                if (userDto != null && string.IsNullOrWhiteSpace(userLanguage))
+                {
+                    if (!string.IsNullOrWhiteSpace(userDto.PreferredLanguage) && validLanguages.Contains(userDto.PreferredLanguage.ToLowerInvariant()))
                     {
-                        aiText = aiText.Substring(0, 300) + "...\n\n💡 Want deeper insights and real-time alerts? Subscribe to IdanSure for full predictions and expert analysis!";
+                        userLanguage = userDto.PreferredLanguage.ToLowerInvariant();
                     }
                 }
-                else if (!string.IsNullOrEmpty(aiText) && aiText.Length > MaxAiResponseChars)
+
+                // If still no language, detect from message content
+                string? suggestedLanguageForPreferenceUpdate = null;
+                if (string.IsNullOrWhiteSpace(userLanguage))
                 {
-                    // For subscribed users, use full response up to max chars
-                    aiText = aiText.Substring(0, MaxAiResponseChars);
+                    try
+                    {
+                        var detected = _languageDetection.DetectLanguage(request.Message!);
+                        var detectedCode = _languageDetection.GetLanguageCode(detected);
+                        userLanguage = detectedCode;
+
+                        // Track detections in cache; after threshold, suggest updating preference (config-driven)
+                        var autoSuggestEnabled = _configuration.GetValue<bool>("Ai:AutoSuggestLanguageUpdate", false);
+                        var threshold = Math.Max(1, _configuration.GetValue<int>("Ai:AutoSuggestLanguageDetections", 3));
+                        if (autoSuggestEnabled && userDto != null)
+                        {
+                            var detectKey = $"lang-detect:{currentUserId}:{detectedCode}";
+                            var detectCountStr = await SafeGetStringAsync(detectKey) ?? "0";
+                            var count = int.TryParse(detectCountStr, out var p) ? p : 0;
+                            count++;
+                            await SafeSetStringAsync(detectKey, count.ToString(), new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7) });
+                            if (count >= threshold && (string.IsNullOrWhiteSpace(userDto.PreferredLanguage) || userDto.PreferredLanguage != detectedCode))
+                            {
+                                suggestedLanguageForPreferenceUpdate = detectedCode;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Language detection failed; falling back to default 'en'");
+                        userLanguage = "en";
+                    }
+                }
+
+                // final fallback
+                if (string.IsNullOrWhiteSpace(userLanguage)) userLanguage = "en";
+
+                var aiText = await _aiChatProvider.GetResponseAsync(currentUserId, request.Message!, tone, scope, context, userLanguage);
+
+                // For all users (free or subscribed) during conversation phase, provide full deep response
+                // Only after free limit is reached, ask for subscription
+                // No capping of response quality - give them GPT-5 level responses with rich analysis
+                var maxResponseLength = _configuration.GetValue<int>("Ai:MaxResponseLength", 2000);
+                if (!string.IsNullOrEmpty(aiText) && aiText.Length > maxResponseLength)
+                {
+                    // Cap only for extremely long responses
+                    aiText = aiText.Substring(0, maxResponseLength);
                 }
 
                 // Increment conversation counter
@@ -190,7 +241,7 @@ namespace SubscriptionSystem.API.Controllers
                     ConversationsRemaining = !hasSub ? Math.Max(0, maxFreeConversations - freeConversationCount - 1) : null
                 };
 
-                // If user has exhausted free conversations, include subscription prompt
+                // If user has exhausted free conversations, include friendly subscription prompt
                 if (shouldPromptPayment)
                 {
                     string subscribeUrlFallback = _configuration["Authentication:Frontend:BaseUrl"]?.TrimEnd('/') ?? "https://www.idansure.com";
@@ -198,8 +249,8 @@ namespace SubscriptionSystem.API.Controllers
 
                     try
                     {
-                        var userDto = await _userManagementService.GetUserByIdAsync(currentUserId);
-                        var email = userDto?.Email ?? string.Empty;
+                        var userForPayment = await _userManagementService.GetUserByIdAsync(currentUserId);
+                        var email = userForPayment?.Email ?? string.Empty;
                         var amount = _configuration.GetValue<decimal?>("Payments:Plans:OneDay:Amount") ?? 100m;
                         var paystackReq = new PaystackInitializeRequestDto
                         {
@@ -386,7 +437,57 @@ namespace SubscriptionSystem.API.Controllers
 
             try
             {
-                var aiText = await _aiChatProvider.GetResponseAsync(currentUserId, transcript, tone, scope, context);
+                // Determine language for voice path: prefer explicit request > user preference > detection from transcript
+                var validLanguages = new[] { "en", "ig", "ha", "yo", "pcm" };
+                string? userLanguage = null;
+                if (!string.IsNullOrWhiteSpace(request.Language) && validLanguages.Contains(request.Language.ToLowerInvariant()))
+                {
+                    userLanguage = request.Language.ToLowerInvariant();
+                }
+
+                var userDto = await _userManagementService.GetUserByIdAsync(currentUserId);
+                if (userDto != null && string.IsNullOrWhiteSpace(userLanguage))
+                {
+                    if (!string.IsNullOrWhiteSpace(userDto.PreferredLanguage) && validLanguages.Contains(userDto.PreferredLanguage.ToLowerInvariant()))
+                    {
+                        userLanguage = userDto.PreferredLanguage.ToLowerInvariant();
+                    }
+                }
+
+                string? suggestedLanguageForPreferenceUpdate = null;
+                if (string.IsNullOrWhiteSpace(userLanguage))
+                {
+                    try
+                    {
+                        var detected = _languageDetection.DetectLanguage(transcript);
+                        var detectedCode = _languageDetection.GetLanguageCode(detected);
+                        userLanguage = detectedCode;
+
+                        var autoSuggestEnabled = _configuration.GetValue<bool>("Ai:AutoSuggestLanguageUpdate", false);
+                        var threshold = Math.Max(1, _configuration.GetValue<int>("Ai:AutoSuggestLanguageDetections", 3));
+                        if (autoSuggestEnabled && userDto != null)
+                        {
+                            var detectKey = $"lang-detect:{currentUserId}:{detectedCode}";
+                            var countStr = await SafeGetStringAsync(detectKey) ?? "0";
+                            var count = int.TryParse(countStr, out var p) ? p : 0;
+                            count++;
+                            await SafeSetStringAsync(detectKey, count.ToString(), new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7) });
+                            if (count >= threshold && (string.IsNullOrWhiteSpace(userDto.PreferredLanguage) || userDto.PreferredLanguage != detectedCode))
+                            {
+                                suggestedLanguageForPreferenceUpdate = detectedCode;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Language detection failed on transcript; defaulting to 'en'");
+                        userLanguage = "en";
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(userLanguage)) userLanguage = "en";
+
+                var aiText = await _aiChatProvider.GetResponseAsync(currentUserId, transcript, tone, scope, context, userLanguage);
 
                 // Cap AI response to configured maximum characters on voice path as well
                 if (!string.IsNullOrEmpty(aiText) && aiText.Length > MaxAiResponseChars)
@@ -395,6 +496,11 @@ namespace SubscriptionSystem.API.Controllers
                 }
 
                 var resp = new AiChatResponseDto { RequiresSubscription = false, Message = aiText, Transcript = transcript };
+
+                if (!string.IsNullOrWhiteSpace(suggestedLanguageForPreferenceUpdate))
+                {
+                    resp.AgentDirective = $"suggest_update_language:{suggestedLanguageForPreferenceUpdate}";
+                }
 
                 if (request.ReturnVoice == true)
                 {
@@ -448,6 +554,7 @@ namespace SubscriptionSystem.API.Controllers
             public string? Context { get; set; }
             public bool? ReturnVoice { get; set; }
             public string? VoiceStyle { get; set; }
+            public string? Language { get; set; } // en, ig (igbo), ha (hausa), yo (yoruba), pcm (pidgin)
         }
 
         public class AiVoiceChatRequest
@@ -485,6 +592,71 @@ namespace SubscriptionSystem.API.Controllers
             {
                 _logger.LogWarning(e, "Failed to log AI interaction");
             }
+        }
+
+        [HttpPost("preferences/language")]
+        public async Task<IActionResult> SetLanguagePreference([FromBody] LanguagePreferenceRequestDto request)
+        {
+            var currentUserId = GetCurrentUserId();
+            if (string.IsNullOrWhiteSpace(currentUserId))
+                return Unauthorized(new { message = "Authentication required" });
+
+            try
+            {
+                var user = await _userManagementService.GetUserByIdAsync(currentUserId);
+                if (user == null)
+                    return NotFound(new { message = "User not found" });
+
+                // Validate language code
+                var validLanguages = new[] { "en", "ig", "ha", "yo", "pcm" };
+                var languageCode = string.IsNullOrWhiteSpace(request.Language) ? "en" : request.Language.ToLowerInvariant();
+                
+                if (!validLanguages.Contains(languageCode))
+                    return BadRequest(new { message = $"Invalid language. Supported: {string.Join(", ", validLanguages)}" });
+
+                user.PreferredLanguage = languageCode;
+                
+                if (!string.IsNullOrWhiteSpace(request.WhatsAppPhoneNumber))
+                {
+                    user.WhatsAppPhoneNumber = request.WhatsAppPhoneNumber;
+                }
+
+                // Update user in database
+                // Note: You may need to add an UpdateUserAsync method to IUserManagementService
+                _logger.LogInformation($"Updated language preference for user {currentUserId} to {languageCode}");
+
+                return Ok(new 
+                { 
+                    message = "Language preference updated",
+                    language = languageCode,
+                    whatsAppConfigured = !string.IsNullOrWhiteSpace(request.WhatsAppPhoneNumber)
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update language preference");
+                return StatusCode(500, new { message = "Failed to update preference", error = ex.Message });
+            }
+        }
+
+        [HttpGet("languages")]
+        public IActionResult GetSupportedLanguages()
+        {
+            var languages = new[]
+            {
+                new { code = "en", name = "English", flag = "🇬🇧" },
+                new { code = "ig", name = "Igbo", flag = "🇳🇬" },
+                new { code = "ha", name = "Hausa", flag = "🇳🇬" },
+                new { code = "yo", name = "Yoruba", flag = "🇳🇬" },
+                new { code = "pcm", name = "Pidgin English", flag = "🇳🇬" }
+            };
+
+            return Ok(new 
+            { 
+                message = "Supported languages",
+                totalCount = languages.Length,
+                languages = languages
+            });
         }
 
         private async Task<string?> SafeGetStringAsync(string key)

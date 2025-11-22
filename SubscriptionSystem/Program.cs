@@ -112,12 +112,21 @@ builder.Services.AddScoped<ITranscriptionService, OpenAiTranscriptionService>();
     
 builder.Services.AddScoped<IDomainEventPublisher, DomainEventPublisher>();
 builder.Services.AddScoped<IWhatsAppProvider, WhatsAppCloudProvider>();
+// Admin WhatsApp webhook services
+builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.WhatsAppAdminCommandParser>();
+builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.WhatsAppAdminPredictionService>();
+// Prediction notification service (sends WhatsApp updates to active subscribers)
+builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.PredictionNotificationService>();
+// Webhook replay protector (uses IDistributedCache - Redis if configured)
+builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.WebhookReplayProtector>();
 builder.Services.AddScoped<IDomainEventHandler<SubscriptionSystem.Domain.Events.SubscriptionActivatedEvent>, SubscriptionSystem.Application.Services.Handlers.SubscriptionActivatedHandler>();
 builder.Services.AddScoped<IDomainEventHandler<SubscriptionSystem.Domain.Events.TipPostedEvent>, SubscriptionSystem.Application.Services.Handlers.TipPostedHandler>();
 // MCP tool registry (WebSocket JSON-RPC style) - scoped to align with scoped application services
 builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Mcp.IMcpToolRegistry, SubscriptionSystem.Infrastructure.Mcp.McpToolRegistry>();
 // Message analysis (tone, scope, context auto-derivation)
 builder.Services.AddScoped<SubscriptionSystem.Application.Interfaces.IMessageAnalysisService, SubscriptionSystem.Application.Services.MessageAnalysisService>();
+// Language detection used by OpenAiChatProvider
+builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.LanguageDetectionService>();
 
 
 var dbConnectionString = builder.Configuration.GetConnectionString("ConnectionStrings__IdanSurestSecurityConnectionForPrediction")

@@ -13,6 +13,8 @@ namespace SubscriptionSystem.Application.DTOs
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
         public List<SubscriptionDto> Subscriptions { get; set; }
+        public string? PreferredLanguage { get; set; } // en, ig, ha, yo, pcm
+        public string? WhatsAppPhoneNumber { get; set; } // For WhatsApp notifications
     }
 }
 

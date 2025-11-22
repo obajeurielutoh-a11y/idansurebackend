@@ -9,7 +9,7 @@ namespace SubscriptionSystem.Infrastructure.Services
     {
         private const int MaxChars = 500;
 
-        public Task<string> GetResponseAsync(string userId, string message, string? tone, string? scope, string? context)
+        public Task<string> GetResponseAsync(string userId, string message, string? tone, string? scope, string? context, string? languageCode = null)
         {
             var t = string.IsNullOrWhiteSpace(tone) ? "neutral" : tone!.Trim();
             var s = string.IsNullOrWhiteSpace(scope) ? "football" : scope!.Trim();

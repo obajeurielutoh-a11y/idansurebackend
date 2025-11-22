@@ -34,6 +34,8 @@ namespace SubscriptionSystem.Domain.Entities
         public string? ProfilePictureUrl { get; set; }
         public string FullName { get; set; } // Add this property
         public decimal SubscriptionAmount { get; set; } // Add this property
+        public string? PreferredLanguage { get; set; } = "en"; // en, ig (igbo), ha (hausa), yo (yoruba), pcm (pidgin)
+        public string? WhatsAppPhoneNumber { get; set; } // For WhatsApp notifications
         [JsonIgnore]
         public virtual ICollection<Subscription> Subscriptions { get; set; }
         public virtual ICollection<Payment> Payments { get; set; }

@@ -15,17 +15,19 @@ namespace SubscriptionSystem.Infrastructure.Services
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
         private readonly ILogger<OpenAiChatProvider> _logger;
+        private readonly LanguageDetectionService _languageDetection;
 
         private const int MaxChars = 500;
 
-        public OpenAiChatProvider(IHttpClientFactory httpClientFactory, IConfiguration configuration, ILogger<OpenAiChatProvider> logger)
+        public OpenAiChatProvider(IHttpClientFactory httpClientFactory, IConfiguration configuration, ILogger<OpenAiChatProvider> logger, LanguageDetectionService languageDetection)
         {
             _httpClientFactory = httpClientFactory;
             _configuration = configuration;
             _logger = logger;
+            _languageDetection = languageDetection ?? throw new ArgumentNullException(nameof(languageDetection));
         }
 
-        public async Task<string> GetResponseAsync(string userId, string message, string? tone, string? scope, string? context)
+        public async Task<string> GetResponseAsync(string userId, string message, string? tone, string? scope, string? context, string? languageCode = null)
         {
             var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? _configuration["OpenAI:ApiKey"];
             if (string.IsNullOrWhiteSpace(apiKey))
@@ -34,25 +36,18 @@ namespace SubscriptionSystem.Infrastructure.Services
                 throw new InvalidOperationException("OpenAI API key not configured. Set OPENAI_API_KEY or OpenAI:ApiKey.");
             }
 
-            var model = _configuration["OpenAI:Model"] ?? "gpt-4o-mini";
-            // Raw multi-line prompt kept simple ASCII to avoid exotic unicode causing source issues.
-            // Constraints enforced downstream (500 chars). Persona: IdanSure GPT, first-person, concise.
-            var systemPrompt = @"You are IdanSure GPT - a friendly first-person football betting insight assistant.
-Persona & tone:
-- Speak as 'I'. Concise, upbeat, practical. No fluff.
-- Confident but realistic (~80% assurance). Never guarantee wins.
-- Promote disciplined bankroll and resilience after losses.
+            var model = _configuration["OpenAI:Model"] ?? "gpt-4.5-mini";
+            
+            // Detect or parse language - support user preference override
+            var detectedLang = _languageDetection.DetectLanguage(message);
+            if (!string.IsNullOrWhiteSpace(languageCode))
+            {
+                detectedLang = _languageDetection.ParseLanguageCode(languageCode);
+            }
 
-Style & constraints:
-- Keep every reply under 500 characters, skimmable.
-- Optional short personal opener when it adds warmth.
-- Optionally include a one-line reminder: active subscription unlocks full predictions & WhatsApp alerts.
-- If asked for unavailable real-time data, state limitation and give general actionable guidance.
-
-Domain focus:
-- Football only: recent form, injuries, head-to-head, home/away splits, congestion, odds/value.
-- Offer quick angles: safer picks, value bets, notable risks tailored to user message.";
-
+            var systemPrompt = _languageDetection.GetLocalizedSystemPrompt(detectedLang);
+            var langName = _languageDetection.GetLanguageName(detectedLang);
+            
             var userTone = string.IsNullOrWhiteSpace(tone) ? "neutral" : tone.Trim();
             var userScope = string.IsNullOrWhiteSpace(scope) ? "football" : scope.Trim();
             var extraContext = string.IsNullOrWhiteSpace(context) ? string.Empty : $"\nContext: {context}";

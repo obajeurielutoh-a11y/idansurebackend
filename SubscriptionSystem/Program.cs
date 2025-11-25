@@ -235,7 +235,7 @@ builder.Services.AddCors(options =>
                                "https://www.idansure.com",
                                "https://idansure.vercel.app",
                                "https://localhost:7221", 
-                               "https://api.idansure.com/index.html", 
+                               "https://api.idansure.com", 
                                 "http://api.idansure.com") // Allow only these origins
                                
                   .AllowAnyHeader()

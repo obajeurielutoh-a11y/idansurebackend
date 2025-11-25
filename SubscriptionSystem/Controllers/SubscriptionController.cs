@@ -35,6 +35,141 @@ namespace SubscriptionSystem.API.Controllers
             _httpClient = httpClientFactory.CreateClient();
         }
 
+        // ---------------------------- NEW: MO webhook & Admin publish ----------------------------
+
+        // Simple in-memory keyword -> product mapping. Override or move to configuration if needed.
+        private static readonly System.Collections.Generic.Dictionary<string, (int productId, string channelName)> KeywordMap =
+            new()
+            {
+                // Only daily subscription keyword supported
+                { "idsd", (productId: 1, channelName: "DAILY") }
+            };
+
+        /// <summary>
+        /// Mobile-Originated webhook from aggregator (MO callback). Accepts form or JSON fields.
+        /// Expected fields (common): msisdn, keyword, shortcode, message
+        /// When keyword maps to a product, trigger i-Cell subscription on behalf of that msisdn.
+        /// </summary>
+        [HttpPost("mo/webhook")]
+        [AllowAnonymous]
+        public async Task<IActionResult> HandleMoWebhook([FromForm] MoCallbackDto formDto)
+        {
+            try
+            {
+                // Support JSON body fallback
+                MoCallbackDto? dto = formDto;
+                if (dto == null || string.IsNullOrWhiteSpace(dto.Keyword))
+                {
+                    // try to read body as JSON
+                    try
+                    {
+                        Request.Body.Position = 0;
+                    }
+                    catch { }
+                    using var sr = new System.IO.StreamReader(Request.Body);
+                    var body = await sr.ReadToEndAsync();
+                    if (!string.IsNullOrWhiteSpace(body))
+                    {
+                        try { dto = System.Text.Json.JsonSerializer.Deserialize<MoCallbackDto>(body); } catch { }
+                    }
+                }
+
+                if (dto == null || string.IsNullOrWhiteSpace(dto.Msisdn) || string.IsNullOrWhiteSpace(dto.Keyword))
+                    return BadRequest(new { message = "Missing msisdn or keyword" });
+
+                var kw = dto.Keyword.Trim().ToLowerInvariant();
+                if (!KeywordMap.TryGetValue(kw, out var mapping))
+                    return Ok(new { message = "Keyword not recognised; ignored" });
+
+                // Build subscription request using defaults from config when present
+                var cpId = _config["ICell:DefaultCpId"] ?? _config["ICell:CpId"] ?? string.Empty;
+                var cpPwd = _config["ICell:DefaultCpPwd"] ?? _config["ICell:CpPwd"] ?? string.Empty;
+
+                var req = new ICellSubscriptionRequestDto
+                {
+                    CpId = cpId,
+                    CpPwd = cpPwd,
+                    Msisdn = dto.Msisdn,
+                    ChannelName = mapping.channelName,
+                    ProductId = mapping.productId,
+                    CpName = _config["ICell:DefaultCpName"] ?? "",
+                    AocMsg1 = 0,
+                    AocMsg2 = 0,
+                    FirstConfirmationDTTM = DateTime.UtcNow
+                };
+
+                var result = await SendICellSubscriptionAsync(req);
+                return Ok(new { message = "MO processed", result });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Admin publish endpoint: accepts up to 150 characters and triggers subscription calls for provided msisdns.
+        /// Authentication: either authenticated user in role 'Admin' OR header `X-Admin-ApiKey` matching config `Subscription:AdminApiKey`.
+        /// </summary>
+        [HttpPost("admin/publish")]
+        public async Task<IActionResult> AdminPublish([FromBody] AdminPublishDto request)
+        {
+            try
+            {
+                // Auth check: role-based or API key
+                var apiKey = Request.Headers.ContainsKey("X-Admin-ApiKey") ? Request.Headers["X-Admin-ApiKey"].ToString() : string.Empty;
+                var configuredKey = _config["Subscription:AdminApiKey"] ?? string.Empty;
+                if (!(User?.IsInRole("Admin") == true || (!string.IsNullOrWhiteSpace(configuredKey) && apiKey == configuredKey)))
+                    return Unauthorized(new { message = "Admin authentication required" });
+
+                if (request == null || string.IsNullOrWhiteSpace(request.Message))
+                    return BadRequest(new { message = "message is required" });
+
+                if (request.Message.Length > 150)
+                    return BadRequest(new { message = "message must be 150 characters or fewer" });
+
+                if (request.Msisdns == null || request.Msisdns.Length == 0)
+                    return BadRequest(new { message = "Provide at least one msisdn to target" });
+
+                // Determine product mapping
+                if (string.IsNullOrWhiteSpace(request.Keyword))
+                    return BadRequest(new { message = "keyword is required to determine subscription product" });
+
+                var kw = request.Keyword.Trim().ToLowerInvariant();
+                if (!KeywordMap.TryGetValue(kw, out var mapping))
+                    return BadRequest(new { message = "unknown keyword" });
+
+                var cpId = _config["ICell:DefaultCpId"] ?? _config["ICell:CpId"] ?? string.Empty;
+                var cpPwd = _config["ICell:DefaultCpPwd"] ?? _config["ICell:CpPwd"] ?? string.Empty;
+
+                var results = new System.Collections.Generic.List<object>();
+                foreach (var msisdn in request.Msisdns)
+                {
+                    var req = new ICellSubscriptionRequestDto
+                    {
+                        CpId = cpId,
+                        CpPwd = cpPwd,
+                        Msisdn = msisdn,
+                        ChannelName = mapping.channelName,
+                        ProductId = mapping.productId,
+                        CpName = _config["ICell:DefaultCpName"] ?? string.Empty,
+                        AocMsg1 = 0,
+                        AocMsg2 = 0,
+                        FirstConfirmationDTTM = DateTime.UtcNow
+                    };
+
+                    var r = await SendICellSubscriptionAsync(req);
+                    results.Add(new { msisdn, r });
+                }
+
+                return Ok(new { message = "Published and subscription attempts sent", results });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
         // ---------------------------- EXISTING ENDPOINTS ----------------------------
         [HttpPost("paystack/initialize")]
         public async Task<IActionResult> InitializePaystackPayment([FromBody] PaystackInitializeRequestDto request)
@@ -97,6 +232,11 @@ namespace SubscriptionSystem.API.Controllers
                 var icellUrl = _config["ICell:BaseUrl"]; // e.g. http://ip:port/SchedulingEngineWeb/services/CallSubscription
                 var soapAction = _config["ICell:SoapAction:HandleNewSubscription"]; // optional
 
+                if (string.IsNullOrWhiteSpace(icellUrl))
+                {
+                    return BadRequest(new { message = "ICell:BaseUrl is not configured. Set configuration key 'ICell:BaseUrl' to the aggregator endpoint (e.g. 'http://host:3991/SchedulingEngineWeb/services/CallSubscription')." });
+                }
+
                 var soapBody = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
 <soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/""
                   xmlns:sub=""http://subscriptionengine.ibm.com"">
@@ -118,6 +258,17 @@ namespace SubscriptionSystem.API.Controllers
    </soapenv:Body>
 </soapenv:Envelope>";
 
+                // Dry-run header support so you can inspect the generated SOAP from Swagger/UI
+                if (Request?.Headers != null && Request.Headers.ContainsKey("X-Dry-Run") && string.Equals(Request.Headers["X-Dry-Run"].ToString(), "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Ok(new { dryRun = true, soap = soapBody });
+                }
+
+                if (!Uri.TryCreate(icellUrl, UriKind.Absolute, out var _))
+                {
+                    return BadRequest(new { message = "ICell:BaseUrl must be an absolute URI (e.g. 'http://host:3991/SchedulingEngineWeb/services/CallSubscription')." });
+                }
+
                 using var httpRequest = new HttpRequestMessage(HttpMethod.Post, icellUrl)
                 {
                     Content = new StringContent(soapBody, Encoding.UTF8, "text/xml")
@@ -129,11 +280,17 @@ namespace SubscriptionSystem.API.Controllers
                 }
                 httpRequest.Headers.TryAddWithoutValidation("Accept", "text/xml");
 
-                var response = await _httpClient.SendAsync(httpRequest);
-                var xmlResponse = await response.Content.ReadAsStringAsync();
-
-                var parsed = ParseICellResponse(xmlResponse);
-                return Ok(new { message = "New subscription sent successfully", response = parsed });
+                try
+                {
+                    var response = await _httpClient.SendAsync(httpRequest);
+                    var xmlResponse = await response.Content.ReadAsStringAsync();
+                    var parsed = ParseICellResponse(xmlResponse);
+                    return Ok(new { message = "New subscription sent successfully", response = parsed });
+                }
+                catch (HttpRequestException hre)
+                {
+                    return StatusCode(502, new { message = "Failed to contact i-Cell endpoint", detail = hre.Message });
+                }
             }
             catch (Exception ex)
             {
@@ -150,39 +307,7 @@ namespace SubscriptionSystem.API.Controllers
         {
             try
             {
-                var icellUrl = _config["ICell:BaseUrl"];
-                var soapAction = _config["ICell:SoapAction:HandleDeSubscription"]; // optional
-
-                var soapBody = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
-<soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/""
-                  xmlns:sub=""http://subscriptionengine.ibm.com"">
-   <soapenv:Header/>
-   <soapenv:Body>
-      <sub:handleDeSubscription>
-         <custAttributesDTO>
-            <msisdn>{request.Msisdn}</msisdn>
-            <productId>{request.ProductId}</productId>
-            <cpId>{request.CpId}</cpId>
-            <cpPwd>{request.CpPwd}</cpPwd>
-         </custAttributesDTO>
-      </sub:handleDeSubscription>
-   </soapenv:Body>
-</soapenv:Envelope>";
-
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, icellUrl)
-                {
-                    Content = new StringContent(soapBody, Encoding.UTF8, "text/xml")
-                };
-                if (!string.IsNullOrWhiteSpace(soapAction))
-                {
-                    httpRequest.Headers.TryAddWithoutValidation("SOAPAction", soapAction);
-                }
-                httpRequest.Headers.TryAddWithoutValidation("Accept", "text/xml");
-
-                var response = await _httpClient.SendAsync(httpRequest);
-                var xmlResponse = await response.Content.ReadAsStringAsync();
-
-                var parsed = ParseICellResponse(xmlResponse);
+                var parsed = await SendICellDeSubscriptionAsync(request);
                 return Ok(new { message = "De-subscription sent successfully", response = parsed });
             }
             catch (Exception ex)
@@ -208,12 +333,12 @@ namespace SubscriptionSystem.API.Controllers
                 var errorCode = xmlDoc.SelectSingleNode("//errorCode")?.InnerText;
                 var errorMsg = xmlDoc.SelectSingleNode("//errorMsg")?.InnerText;
 
-                await _subscriptionService.HandleICellDataSyncAsync(msisdn, productId, errorCode, errorMsg);
+                await _subscriptionService.HandleICellDataSyncAsync(msisdn ?? string.Empty, productId, errorCode, errorMsg);
 
                 // Return SOAP acknowledgment as per i-Cell spec
                 var responseXml = @"<soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/"">
    <soapenv:Body>
-      <notificationToCPResponse xmlns=""http://SubscriptionEngine.ibm.com""/>
+      <notificationToCPResponse xmlns=""http://SubscriptionEngine.ibm.com""/>butt
    </soapenv:Body>
 </soapenv:Envelope>";
 
@@ -226,6 +351,92 @@ namespace SubscriptionSystem.API.Controllers
         }
 
         // ---------------------------- UTILITIES ----------------------------
+          private async Task<object> SendICellSubscriptionAsync(ICellSubscriptionRequestDto request)
+          {
+                var icellUrl = _config["ICell:BaseUrl"];
+                var soapAction = _config["ICell:SoapAction:HandleNewSubscription"];
+
+                if (string.IsNullOrWhiteSpace(icellUrl))
+                {
+                    throw new InvalidOperationException("ICell:BaseUrl is not configured. Set configuration key 'ICell:BaseUrl' to the aggregator endpoint.");
+                }
+
+                var soapBody = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+<soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/""
+                        xmlns:sub=""http://subscriptionengine.ibm.com""> 
+    <soapenv:Header/> 
+    <soapenv:Body>
+        <sub:handleNewSubscription>
+            <custAttributesDTO>
+                <cpId>{request.CpId}</cpId>
+                <cpPwd>{request.CpPwd}</cpPwd>
+                <msisdn>{request.Msisdn}</msisdn>
+                <channelName>{request.ChannelName}</channelName>
+                <productId>{request.ProductId}</productId>
+                <cpName>{request.CpName}</cpName>
+                <aocMsg1>{request.AocMsg1}</aocMsg1>
+                <aocMsg2>{request.AocMsg2}</aocMsg2>
+                <firstConfirmationDTTM>{request.FirstConfirmationDTTM:yyyy-MM-ddTHH:mm:ss.fffZ}</firstConfirmationDTTM>
+            </custAttributesDTO>
+        </sub:handleNewSubscription>
+    </soapenv:Body>
+</soapenv:Envelope>";
+
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, icellUrl)
+                {
+                     Content = new StringContent(soapBody, Encoding.UTF8, "text/xml")
+                };
+                if (!string.IsNullOrWhiteSpace(soapAction))
+                {
+                     httpRequest.Headers.TryAddWithoutValidation("SOAPAction", soapAction);
+                }
+                httpRequest.Headers.TryAddWithoutValidation("Accept", "text/xml");
+
+                var response = await _httpClient.SendAsync(httpRequest);
+                var xmlResponse = await response.Content.ReadAsStringAsync();
+                return ParseICellResponse(xmlResponse);
+          }
+
+          private async Task<object> SendICellDeSubscriptionAsync(ICellDeSubscriptionRequestDto request)
+          {
+                var icellUrl = _config["ICell:BaseUrl"];
+                var soapAction = _config["ICell:SoapAction:HandleDeSubscription"];
+
+                if (string.IsNullOrWhiteSpace(icellUrl))
+                {
+                    throw new InvalidOperationException("ICell:BaseUrl is not configured. Set configuration key 'ICell:BaseUrl' to the aggregator endpoint.");
+                }
+
+                var soapBody = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+<soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/""
+                        xmlns:sub=""http://subscriptionengine.ibm.com""> 
+    <soapenv:Header/> 
+    <soapenv:Body>
+        <sub:handleDeSubscription>
+            <custAttributesDTO>
+                <msisdn>{request.Msisdn}</msisdn>
+                <productId>{request.ProductId}</productId>
+                <cpId>{request.CpId}</cpId>
+                <cpPwd>{request.CpPwd}</cpPwd>
+            </custAttributesDTO>
+        </sub:handleDeSubscription>
+    </soapenv:Body>
+</soapenv:Envelope>";
+
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, icellUrl)
+                {
+                     Content = new StringContent(soapBody, Encoding.UTF8, "text/xml")
+                };
+                if (!string.IsNullOrWhiteSpace(soapAction))
+                {
+                     httpRequest.Headers.TryAddWithoutValidation("SOAPAction", soapAction);
+                }
+                httpRequest.Headers.TryAddWithoutValidation("Accept", "text/xml");
+
+                var response = await _httpClient.SendAsync(httpRequest);
+                var xmlResponse = await response.Content.ReadAsStringAsync();
+                return ParseICellResponse(xmlResponse);
+          }
         private static object ParseICellResponse(string xml)
         {
             try
@@ -253,12 +464,12 @@ namespace SubscriptionSystem.API.Controllers
     // ---------------------------- DTOs ----------------------------
     public class ICellSubscriptionRequestDto
     {
-        public string CpId { get; set; } // string to support large numeric IDs
-        public string CpPwd { get; set; }
-        public string Msisdn { get; set; }
-        public string ChannelName { get; set; }
+        public string CpId { get; set; } = string.Empty; // string to support large numeric IDs
+        public string CpPwd { get; set; } = string.Empty;
+        public string Msisdn { get; set; } = string.Empty;
+        public string ChannelName { get; set; } = string.Empty;
         public int ProductId { get; set; }
-        public string CpName { get; set; }
+        public string CpName { get; set; } = string.Empty;
         public int AocMsg1 { get; set; }
         public int AocMsg2 { get; set; }
         public DateTime FirstConfirmationDTTM { get; set; }
@@ -266,9 +477,26 @@ namespace SubscriptionSystem.API.Controllers
 
     public class ICellDeSubscriptionRequestDto
     {
-        public string Msisdn { get; set; }
+        public string Msisdn { get; set; } = string.Empty;
         public int ProductId { get; set; }
-        public string CpId { get; set; } // string to support large numeric IDs
-        public string CpPwd { get; set; }
+        public string CpId { get; set; } = string.Empty; // string to support large numeric IDs
+        public string CpPwd { get; set; } = string.Empty;
+    }
+    
+    public class MoCallbackDto
+    {
+        public string? Msisdn { get; set; }
+        public string? Keyword { get; set; }
+        public string? Shortcode { get; set; }
+        public string? Message { get; set; }
+        public string? Timestamp { get; set; }
+    }
+
+    public class AdminPublishDto
+    {
+        public string? Message { get; set; }
+        public string[]? Msisdns { get; set; }
+        public string? Keyword { get; set; }
+        public string? Language { get; set; }
     }
 }

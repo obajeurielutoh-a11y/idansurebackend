@@ -559,7 +559,24 @@ app.UseSwagger(c =>
 {
     c.PreSerializeFilters.Add((swaggerDoc, httpReq) =>
     {
-        var serverUrl = $"{httpReq.Scheme}://{httpReq.Host.Value}";
+        // Prefer forwarded headers set by reverse proxies (ALB/Nginx) to determine public scheme/host
+        var proto = httpReq.Headers["X-Forwarded-Proto"].FirstOrDefault();
+        var forwardedHost = httpReq.Headers["X-Forwarded-Host"].FirstOrDefault();
+
+        // Allow explicit override via configuration (PublicUrl) if set
+        var configuredPublicUrl = builder.Configuration["PublicUrl"];
+        if (!string.IsNullOrEmpty(configuredPublicUrl))
+        {
+            swaggerDoc.Servers = new List<Microsoft.OpenApi.Models.OpenApiServer>
+            {
+                new Microsoft.OpenApi.Models.OpenApiServer { Url = configuredPublicUrl }
+            };
+            return;
+        }
+
+        var scheme = !string.IsNullOrEmpty(proto) ? proto : httpReq.Scheme;
+        var host = !string.IsNullOrEmpty(forwardedHost) ? forwardedHost : httpReq.Host.Value;
+        var serverUrl = $"{scheme}://{host}";
         swaggerDoc.Servers = new List<Microsoft.OpenApi.Models.OpenApiServer>
         {
             new Microsoft.OpenApi.Models.OpenApiServer { Url = serverUrl }
@@ -582,8 +599,7 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
-app.UseSwagger();
-app.UseSwaggerUI();
+// Swagger/UI already configured above with PreSerializeFilters and UI setup; avoid duplicate calls
 
 
 // Routing must come before CORS

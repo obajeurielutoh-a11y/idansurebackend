@@ -22,17 +22,23 @@ namespace SubscriptionSystem.API.Controllers
         private readonly IPaymentService _paymentService;
         private readonly IConfiguration _config;
         private readonly HttpClient _httpClient;
+        private readonly ILogger<SubscriptionController> _logger;
+        private readonly IPredictionPostService _predictionPostService;
 
         public SubscriptionController(
             ISubscriptionService subscriptionService,
             IPaymentService paymentService,
             IConfiguration config,
-            IHttpClientFactory httpClientFactory)
+            IHttpClientFactory httpClientFactory,
+            ILogger<SubscriptionController> logger,
+            IPredictionPostService predictionPostService)
         {
             _subscriptionService = subscriptionService ?? throw new ArgumentNullException(nameof(subscriptionService));
             _paymentService = paymentService ?? throw new ArgumentNullException(nameof(paymentService));
             _config = config;
             _httpClient = httpClientFactory.CreateClient();
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _predictionPostService = predictionPostService ?? throw new ArgumentNullException(nameof(predictionPostService));
         }
 
         // ---------------------------- NEW: MO webhook & Admin publish ----------------------------
@@ -104,6 +110,146 @@ namespace SubscriptionSystem.API.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// MO Notification endpoint from Service Provider in XML format.
+        /// Accepts XML with shortcode, msisdn, and message. Timestamp is auto-generated server-side.
+        /// Example XML: &lt;root&gt;&lt;shortcode&gt;77716&lt;/shortcode&gt;&lt;msisdn&gt;+2349094048672&lt;/msisdn&gt;&lt;message&gt;742&lt;/message&gt;&lt;/root&gt;
+        /// </summary>
+        [HttpPost("mo")]
+        [Consumes("application/xml", "text/xml")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ReceiveMoNotification([FromBody] MoNotificationDto notification)
+        {
+            try
+            {
+                if (notification == null)
+                    return BadRequest(new { message = "Invalid XML payload." });
+
+                // Auto-generate timestamp server-side (ignore any timestamp from request)
+                var timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+
+                _logger.LogInformation(
+                    "Received MO Notification: Shortcode={Shortcode}, Msisdn={Msisdn}, Message={Message}, Timestamp={Timestamp}",
+                    notification.Shortcode, notification.Msisdn, notification.Message, timestamp);
+
+                // Process the MO notification: parse message for keywords and trigger subscription
+                var keyword = notification.Message?.Trim().ToLowerInvariant() ?? string.Empty;
+                
+                if (string.IsNullOrWhiteSpace(keyword))
+                {
+                    _logger.LogWarning("MO notification received with empty message from {Msisdn}", notification.Msisdn);
+                    return Ok(new { message = "Notification received but message was empty.", timestamp });
+                }
+
+                // Check if keyword maps to a product
+                if (KeywordMap.TryGetValue(keyword, out var mapping))
+                {
+                    _logger.LogInformation("Keyword '{Keyword}' matched product {ProductId} for msisdn {Msisdn}", 
+                        keyword, mapping.productId, notification.Msisdn);
+
+                    try
+                    {
+                        // Build subscription request using defaults from config
+                        var cpId = _config["ICell:DefaultCpId"] ?? _config["ICell:CpId"] ?? string.Empty;
+                        var cpPwd = _config["ICell:DefaultCpPwd"] ?? _config["ICell:CpPwd"] ?? string.Empty;
+
+                        var subscriptionRequest = new ICellSubscriptionRequestDto
+                        {
+                            CpId = cpId,
+                            CpPwd = cpPwd,
+                            Msisdn = notification.Msisdn,
+                            ChannelName = mapping.channelName,
+                            ProductId = mapping.productId,
+                            CpName = _config["ICell:DefaultCpName"] ?? string.Empty,
+                            AocMsg1 = 0,
+                            AocMsg2 = 0,
+                            FirstConfirmationDTTM = DateTime.UtcNow
+                        };
+
+                        // Trigger subscription to i-Cell aggregator
+                        var subscriptionResult = await SendICellSubscriptionAsync(subscriptionRequest);
+                        
+                        _logger.LogInformation("Subscription triggered for {Msisdn} with keyword '{Keyword}'. Result: {@Result}",
+                            notification.Msisdn, keyword, subscriptionResult);
+
+                        // Check if user has already received today's prediction (one per day security)
+                        var today = DateTime.UtcNow.Date;
+                        var hasReceivedToday = await _predictionPostService.HasReceivedTodaysPredictionAsync(notification.Msisdn, today);
+
+                        string predictionMessage = string.Empty;
+                        if (!hasReceivedToday)
+                        {
+                            // Get today's prediction
+                            var todaysPrediction = await _predictionPostService.GetPredictionForDateAsync(today);
+
+                            if (todaysPrediction != null)
+                            {
+                                // Format prediction message (max 500 chars)
+                                predictionMessage = $"Today's Tip: {todaysPrediction.Team1} vs {todaysPrediction.Team2} - {todaysPrediction.PredictionOutcome}";
+
+                                // Record that this msisdn received today's prediction
+                                await _predictionPostService.RecordPredictionSentAsync(notification.Msisdn, todaysPrediction.Id, today);
+
+                                _logger.LogInformation("Sent today's prediction to {Msisdn}. Prediction ID: {PredictionId}", 
+                                    notification.Msisdn, todaysPrediction.Id);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("No prediction available for today to send to {Msisdn}", notification.Msisdn);
+                                predictionMessage = "Welcome to daily tips! No prediction available yet for today.";
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogInformation("User {Msisdn} already received today's prediction. Skipping.", notification.Msisdn);
+                            predictionMessage = "You have already received today's prediction.";
+                        }
+
+                        return Ok(new 
+                        { 
+                            message = "Notification processed and subscription triggered successfully.", 
+                            timestamp,
+                            keyword,
+                            msisdn = notification.Msisdn,
+                            productId = mapping.productId,
+                            subscriptionResult,
+                            predictionSent = !hasReceivedToday && !string.IsNullOrEmpty(predictionMessage),
+                            predictionMessage
+                        });
+                    }
+                    catch (Exception subEx)
+                    {
+                        _logger.LogError(subEx, "Failed to trigger subscription for {Msisdn} with keyword '{Keyword}'", 
+                            notification.Msisdn, keyword);
+                        
+                        return Ok(new 
+                        { 
+                            message = "Notification received but subscription failed.", 
+                            timestamp,
+                            error = subEx.Message 
+                        });
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("Keyword '{Keyword}' not recognized from {Msisdn}. No action taken.", 
+                        keyword, notification.Msisdn);
+                    
+                    return Ok(new 
+                    { 
+                        message = "Notification received but keyword not recognized.", 
+                        timestamp,
+                        keyword 
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing MO notification");
+                return StatusCode(500, new { message = "An error occurred processing the notification.", detail = ex.Message });
             }
         }
 

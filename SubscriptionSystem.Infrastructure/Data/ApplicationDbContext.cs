@@ -27,6 +27,8 @@ namespace SubscriptionSystem.Infrastructure.Data
         public DbSet<ApiKey> ApiKeys { get; set; }
         public DbSet<StandardizedTransaction> Transactions { get; set; }
         public DbSet<Admin> Admins { get; set; }
+        public DbSet<DailyPrediction> DailyPredictions { get; set; }
+        public DbSet<PredictionDeliveryLog> PredictionDeliveryLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

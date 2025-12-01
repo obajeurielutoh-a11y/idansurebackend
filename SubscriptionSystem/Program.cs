@@ -90,6 +90,7 @@ builder.Services.AddScoped<ITicketService, TicketService>();
 
 builder.Services.AddScoped<IAsedeyhotPredictionService, AsedeyhotPredictionService>();
 builder.Services.AddScoped<IAsedeyhotPredictionRepository, AsedeyhotPredictionRepository>();
+builder.Services.AddScoped<IPredictionPostService, PredictionPostService>();
 
 
 // Register Infrastructure services
@@ -109,6 +110,7 @@ builder.Services.AddScoped<IAiChatProvider, OpenAiChatProvider>();
 // Audio (AWS Polly) & Transcription (OpenAI Whisper)
 builder.Services.AddScoped<IAudioService, AwsPollyAudioService>();
 builder.Services.AddScoped<ITranscriptionService, OpenAiTranscriptionService>();
+builder.Services.AddScoped<ISmsService, SmsService>();
     
 builder.Services.AddScoped<IDomainEventPublisher, DomainEventPublisher>();
 builder.Services.AddScoped<IWhatsAppProvider, WhatsAppCloudProvider>();
@@ -455,7 +457,8 @@ builder.Services.AddControllers()
     {
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.Preserve;
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-    });
+    })
+    .AddXmlSerializerFormatters();
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromMinutes(30);
@@ -589,7 +592,7 @@ app.UseSwagger(c =>
  app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
-        c.RoutePrefix = string.Empty;  // Make Swagger UI the default page at root path
+        // c.RoutePrefix = string.Empty;  // Make Swagger UI the default page at root path
     });
 // Rate limiting early
 app.UseIpRateLimiting();

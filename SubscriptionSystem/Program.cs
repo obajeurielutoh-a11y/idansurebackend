@@ -517,14 +517,19 @@ builder.Services.AddHttpsRedirection(options =>
     options.HttpsPort = 443;
 });
 
-// Respect reverse proxy headers (X-Forwarded-Proto/For) for correct https scheme behind ALB/App Runner
+// Respect reverse proxy headers (X-Forwarded-Proto/For/Host) for correct https scheme behind ALB/Nginx/CloudFront
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    // If running behind AWS, we typically don't know the proxy addresses at build time
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor 
+                             | ForwardedHeaders.XForwardedProto 
+                             | ForwardedHeaders.XForwardedHost;
+    // If running behind AWS/CloudFront/Nginx, we typically don't know the proxy addresses at build time
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
     options.ForwardLimit = 2;
+    
+    // Allow forwarding from any proxy (required for CloudFront/ALB/Nginx)
+    options.AllowedHosts.Clear();
 });
 // Add application and infrastructure services
 // Build the application

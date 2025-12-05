@@ -130,6 +130,9 @@ builder.Services.AddScoped<SubscriptionSystem.Application.Interfaces.IMessageAna
 // Language detection used by OpenAiChatProvider
 builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.LanguageDetectionService>();
 
+// Prediction analytics service (monthly/daily metrics, moving averages, trend)
+builder.Services.AddScoped<SubscriptionSystem.Application.Interfaces.IPredictionAnalyticsService, SubscriptionSystem.Application.Services.PredictionAnalyticsService>();
+
 
 var dbConnectionString = builder.Configuration.GetConnectionString("ConnectionStrings__IdanSurestSecurityConnectionForPrediction")
     ?? builder.Configuration["ConnectionStrings:IdanSurestSecurityConnectionForPrediction"]

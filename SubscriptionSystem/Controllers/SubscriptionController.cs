@@ -471,28 +471,49 @@ namespace SubscriptionSystem.API.Controllers
         {
             try
             {
+                // Validate incoming XML — return 400 if malformed to avoid 500s on bad payloads
                 var xmlDoc = new XmlDocument();
-                xmlDoc.LoadXml(xmlNotification);
+                try
+                {
+                    xmlDoc.LoadXml(xmlNotification);
+                }
+                catch (XmlException xe)
+                {
+                    _logger.LogWarning(xe, "Invalid XML received in ICell notification");
+                    return BadRequest(new { message = "Invalid XML payload", detail = xe.Message });
+                }
 
-                var msisdn = xmlDoc.SelectSingleNode("//msisdn")?.InnerText;
-                var productId = xmlDoc.SelectSingleNode("//productId")?.InnerText;
-                var errorCode = xmlDoc.SelectSingleNode("//errorCode")?.InnerText;
-                var errorMsg = xmlDoc.SelectSingleNode("//errorMsg")?.InnerText;
+                // Namespace-aware lookup: support both namespaced and non-namespaced payloads
+                var nsmgr = new XmlNamespaceManager(xmlDoc.NameTable);
+                nsmgr.AddNamespace("soapenv", "http://schemas.xmlsoap.org/soap/envelope/");
+                nsmgr.AddNamespace("p", "http://SubscriptionEngine.ibm.com");
+
+                XmlNode? notificationNode = xmlDoc.SelectSingleNode("//notificationRespDTO")
+                                            ?? xmlDoc.SelectSingleNode("//p:notificationRespDTO", nsmgr)
+                                            ?? xmlDoc.SelectSingleNode("//soapenv:Body//notificationRespDTO", nsmgr);
+
+                if (notificationNode == null)
+                {
+                    _logger.LogWarning("ICell notification missing expected 'notificationRespDTO' node.");
+                    return BadRequest(new { message = "Missing notificationRespDTO node in SOAP payload" });
+                }
+
+                var msisdn = notificationNode.SelectSingleNode(".//msisdn")?.InnerText;
+                var productId = notificationNode.SelectSingleNode(".//productId")?.InnerText;
+                var errorCode = notificationNode.SelectSingleNode(".//errorCode")?.InnerText;
+                var errorMsg = notificationNode.SelectSingleNode(".//errorMsg")?.InnerText;
 
                 await _subscriptionService.HandleICellDataSyncAsync(msisdn ?? string.Empty, productId, errorCode, errorMsg);
 
                 // Return SOAP acknowledgment as per i-Cell spec
-                var responseXml = @"<soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/"">
-   <soapenv:Body>
-      <notificationToCPResponse xmlns=""http://SubscriptionEngine.ibm.com""/>butt
-   </soapenv:Body>
-</soapenv:Envelope>";
+                var responseXml = "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\">\n   <soapenv:Body>\n      <notificationToCPResponse xmlns=\"http://SubscriptionEngine.ibm.com\"/>\n   </soapenv:Body>\n</soapenv:Envelope>";
 
                 return Content(responseXml, "text/xml");
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = ex.Message });
+                _logger.LogError(ex, "Error processing ICell notification");
+                return StatusCode(500, new { message = "An error occurred processing the notification.", detail = ex.Message });
             }
         }
 

@@ -597,7 +597,7 @@ app.UseSwagger(c =>
  app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
-        c.RoutePrefix = string.Empty;  // Make Swagger UI the default page at root path
+        // c.RoutePrefix = string.Empty;  // Make Swagger UI the default page at root path
     });
 // Rate limiting early
 app.UseIpRateLimiting();

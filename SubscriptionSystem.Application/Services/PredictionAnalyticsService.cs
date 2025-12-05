@@ -4,6 +4,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using SubscriptionSystem.Application.DTOs;
 using SubscriptionSystem.Application.Interfaces;
 using SubscriptionSystem.Domain.Entities;
@@ -16,12 +20,14 @@ namespace SubscriptionSystem.Application.Services
         private readonly IPredictionRepository _predictionRepository;
         private readonly IConfiguration _configuration;
         private readonly ILogger<PredictionAnalyticsService> _logger;
+        private readonly IHttpClientFactory _httpClientFactory;
 
-        public PredictionAnalyticsService(IPredictionRepository predictionRepository, IConfiguration configuration, ILogger<PredictionAnalyticsService> logger)
+        public PredictionAnalyticsService(IPredictionRepository predictionRepository, IConfiguration configuration, ILogger<PredictionAnalyticsService> logger, IHttpClientFactory httpClientFactory)
         {
             _predictionRepository = predictionRepository;
             _configuration = configuration;
             _logger = logger;
+            _httpClientFactory = httpClientFactory;
         }
 
         public async Task<MonthlyPredictionAnalyticsDto> GetMonthlyAnalyticsAsync(int year, int month)
@@ -85,13 +91,74 @@ namespace SubscriptionSystem.Application.Services
             {
                 try
                 {
-                    dto.OpenAIAnalysis = "(analysis disabled in this environment)";
-                    // Optional: integrate call to OpenAI for natural language analysis
+                    // prepare compact metrics payload
+                    var compact = metrics.Select(m => new { date = m.Date.ToString("yyyy-MM-dd"), wins = m.Wins, losses = m.Losses, successRate = Math.Round(m.SuccessRate, 3) }).ToArray();
+                    var payloadJson = JsonSerializer.Serialize(new
+                    {
+                        year,
+                        month,
+                        overallSuccessRate = Math.Round(dto.OverallSuccessRate, 3),
+                        trendSlope = Math.Round(dto.TrendSlope, 6),
+                        daily = compact
+                    });
+
+                    var model = _configuration["OpenAI__Model"] ?? _configuration["OpenAI:Model"] ?? "gpt-4o-mini";
+                    var client = _httpClientFactory.CreateClient();
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", openAiKey);
+
+                    var systemPrompt = "You are a data analyst. Provide a concise, actionable summary of prediction performance for a month: highlight strengths, weaknesses, trend, notable days, and suggest model tuning directions. Output JSON with keys: summary, recommendations, highlights.";
+                    var userPrompt = $"Here is the monthly metrics JSON:\n{payloadJson}\nProduce the requested JSON output.";
+
+                    var reqBody = new
+                    {
+                        model = model,
+                        messages = new[]
+                        {
+                            new { role = "system", content = systemPrompt },
+                            new { role = "user", content = userPrompt }
+                        },
+                        temperature = 0.2,
+                        max_tokens = 500
+                    };
+
+                    var reqJson = JsonSerializer.Serialize(reqBody);
+                    using var content = new StringContent(reqJson, Encoding.UTF8, "application/json");
+                    using var resp = await client.PostAsync("https://api.openai.com/v1/chat/completions", content);
+                    var respText = await resp.Content.ReadAsStringAsync();
+
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(respText);
+                            var message = doc.RootElement
+                                             .GetProperty("choices")[0]
+                                             .GetProperty("message")
+                                             .GetProperty("content")
+                                             .GetString();
+                            dto.OpenAIAnalysis = message ?? "(no content)";
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to parse OpenAI response");
+                            dto.OpenAIAnalysis = "(openai returned unparsable response)";
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("OpenAI request failed: {Status} {Body}", resp.StatusCode, respText);
+                        dto.OpenAIAnalysis = $"(openai error: {resp.StatusCode})";
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "OpenAI analysis failed");
+                    dto.OpenAIAnalysis = "(openai analysis error)";
                 }
+            }
+            else
+            {
+                dto.OpenAIAnalysis = "(analysis disabled in this environment)";
             }
 
             return dto;

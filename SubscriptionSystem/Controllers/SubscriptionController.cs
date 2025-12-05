@@ -475,11 +475,55 @@ namespace SubscriptionSystem.API.Controllers
                 var xmlDoc = new XmlDocument();
                 try
                 {
-                    xmlDoc.LoadXml(xmlNotification);
+                    // Be permissive: trim whitespace, strip common BOM/null chars and drop any leading non-XML text
+                    var raw = (xmlNotification ?? string.Empty).Trim();
+                    if (string.IsNullOrEmpty(raw))
+                        return BadRequest(new { message = "Empty XML payload" });
+
+                    // Remove common BOM / null characters
+                    raw = raw.TrimStart('\uFEFF', '\u0000');
+
+                    // If there is any leading garbage (some providers prepend text), locate the first '<' and parse from there
+                    var firstLt = raw.IndexOf('<');
+                    if (firstLt > 0)
+                    {
+                        raw = raw.Substring(firstLt);
+                    }
+
+                    try
+                    {
+                        xmlDoc.LoadXml(raw);
+                    }
+                    catch (XmlException)
+                    {
+                        // Fallback: try extracting from first '<' to last '>' in case payload has trailing garbage or extra bytes
+                        var lastGt = raw.LastIndexOf('>');
+                        if (firstLt >= 0 && lastGt > firstLt)
+                        {
+                            var candidate = raw.Substring(firstLt, lastGt - firstLt + 1);
+                            try
+                            {
+                                xmlDoc.LoadXml(candidate);
+                            }
+                            catch (XmlException xe2)
+                            {
+                                // Log truncated raw payload for diagnostics and return BadRequest
+                                var sample = raw.Length <= 300 ? raw : raw.Substring(0, 300) + "...";
+                                _logger.LogWarning(xe2, "Invalid XML received in ICell notification (fallback failed). Raw sample: {Sample}", sample);
+                                return BadRequest(new { message = "Invalid XML payload", detail = xe2.Message, rawSample = sample });
+                            }
+                        }
+                        else
+                        {
+                            var sample = raw.Length <= 300 ? raw : raw.Substring(0, 300) + "...";
+                            _logger.LogWarning("Invalid XML received in ICell notification and no parsable XML fragment found. Raw sample: {Sample}", sample);
+                            return BadRequest(new { message = "Invalid XML payload", rawSample = sample });
+                        }
+                    }
                 }
                 catch (XmlException xe)
                 {
-                    _logger.LogWarning(xe, "Invalid XML received in ICell notification");
+                    _logger.LogWarning(xe, "Invalid XML received in ICell notification (outer)");
                     return BadRequest(new { message = "Invalid XML payload", detail = xe.Message });
                 }
 

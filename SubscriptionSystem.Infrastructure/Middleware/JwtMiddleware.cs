@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using SubscriptionSystem.Application.Interfaces;
 using System.Security.Claims;
 using System.Threading.Tasks;
@@ -11,11 +12,13 @@ namespace SubscriptionSystem.Infrastructure.Middleware
     {
         private readonly RequestDelegate _next;
         private readonly IConfiguration _configuration;
+        private readonly ILogger<JwtMiddleware> _logger;
 
-        public JwtMiddleware(RequestDelegate next, IConfiguration configuration)
+        public JwtMiddleware(RequestDelegate next, IConfiguration configuration, ILogger<JwtMiddleware> logger)
         {
             _next = next;
             _configuration = configuration;
+            _logger = logger;
         }
 
         public async Task InvokeAsync(
@@ -24,14 +27,21 @@ namespace SubscriptionSystem.Infrastructure.Middleware
             IApiKeyService apiKeyService
         )
         {
-            var token = context.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
-            var apiKey = context.Request.Headers["X-API-Key"].FirstOrDefault();
+            try
+            {
+                var token = context.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
+                var apiKey = context.Request.Headers["X-API-Key"].FirstOrDefault();
 
 
-            if (token != null)
-                await AttachUserToContext(context, token, jwtService);
-            else if (apiKey != null)
-                await AttachUserToContextByApiKey(context, apiKey, apiKeyService);
+                if (token != null)
+                    await AttachUserToContext(context, token, jwtService);
+                else if (apiKey != null)
+                    await AttachUserToContextByApiKey(context, apiKey, apiKeyService);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Unhandled exception in JwtMiddleware while processing request {Path}", context?.Request?.Path);
+            }
 
             await _next(context);
         }
@@ -65,9 +75,9 @@ namespace SubscriptionSystem.Infrastructure.Middleware
                 var claims = new[]
                 {
                     new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                    new Claim(ClaimTypes.Email, user.Email),
-                    new Claim(ClaimTypes.Role, user.Role),
-                    new Claim("ApiKey", apiKey)
+                    new Claim(ClaimTypes.Email, user.Email ?? string.Empty),
+                    new Claim(ClaimTypes.Role, user.Role ?? string.Empty),
+                    new Claim("ApiKey", apiKey ?? string.Empty)
                 };
 
                 var identity = new ClaimsIdentity(claims, "ApiKey");

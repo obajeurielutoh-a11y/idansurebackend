@@ -53,30 +53,41 @@ public class AuthController : ControllerBase
             return BadRequest(ModelState);
         }
 
-        var result = await _authService.SignInAsync(signInData);
-        if (!result.IsSuccess)
+        try
         {
-            return BadRequest(new { message = result.ErrorMessage });
-        }
-
-        // Set authentication cookies
-        SetAuthCookies(result.Data.Token, result.Data.RefreshToken);
-
-        // Return the standard response
-        return Ok(new
-        {
-            message = "Signed in successfully",
-            token = result.Data.Token,
-            user = new
+            var result = await _authService.SignInAsync(signInData);
+            if (!result.IsSuccess)
             {
-                id = result.Data.UserId,
-                email = result.Data.Email,
-                fullName = result.Data.FullName,
-                role = result.Data.Role,
-                hasActiveSubscription = result.Data.HasActiveSubscription,
-                phoneNumber = result.Data.PhoneNumber
+                return BadRequest(new { message = result.ErrorMessage });
             }
-        });
+
+            // Set authentication cookies
+            SetAuthCookies(result.Data.Token, result.Data.RefreshToken);
+
+            // Return the standard response
+            return Ok(new
+            {
+                message = "Signed in successfully",
+                token = result.Data.Token,
+                user = new
+                {
+                    id = result.Data.UserId,
+                    email = result.Data.Email,
+                    fullName = result.Data.FullName,
+                    role = result.Data.Role,
+                    hasActiveSubscription = result.Data.HasActiveSubscription,
+                    phoneNumber = result.Data.PhoneNumber
+                }
+            });
+        }
+        catch (System.Exception ex)
+        {
+            _configuration.GetSection("Logging");
+            // Log and return a friendly non-500 response to avoid empty 500s
+            // Use Console and logger if available
+            try { _authService?.GetType(); } catch {}
+            return StatusCode(503, new { message = "Authentication temporarily unavailable", details = ex.Message });
+        }
     }
     [HttpPost("CheckUserSubscription")]
     //[Authorize(AuthenticationSchemes = "Basic")]

@@ -1,0 +1,13 @@
+# SSL certificates go here
+# Place your SSL certificate files:
+# - idansure.crt (certificate)
+# - idansure.key (private key)
+
+# For self-signed certificate generation:
+# openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+#   -keyout idansure.key \
+#   -out idansure.crt \
+#   -subj "/C=NG/ST=Lagos/L=Lagos/O=IdanSure/CN=api.idansure.com"
+
+# For Let's Encrypt:
+# certbot certonly --webroot -w . -d api.idansure.com

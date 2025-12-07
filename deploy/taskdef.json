@@ -1,0 +1,32 @@
+{
+  "family": "idan-subscription-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::123456789012:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::123456789012:role/IdanSubscriptionTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "subscription-system",
+  "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/idansure-subscription:latest",
+      "portMappings": [
+        { "containerPort": 8080, "protocol": "tcp" }
+      ],
+      "essential": true,
+      "environment": [
+        { "name": "ASPNETCORE_URLS", "value": "http://+:8080" },
+        { "name": "ASPNETCORE_ENVIRONMENT", "value": "Production" },
+        { "name": "Swagger:Enabled", "value": "true" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/idan-subscription-api",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

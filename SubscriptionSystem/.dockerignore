@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/node_modules/
+*.user
+*.suo
+*.swp
+*.log
+*.env
+secrets.*
+# Build artifacts
+/app/publish/
+/app/source/

@@ -32,35 +32,19 @@ namespace SubscriptionSystem.Infrastructure.Middleware
                 var token = context.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
                 var apiKey = context.Request.Headers["X-API-Key"].FirstOrDefault();
 
-
                 if (token != null)
                     await AttachUserToContext(context, token, jwtService);
                 else if (apiKey != null)
                     await AttachUserToContextByApiKey(context, apiKey, apiKeyService);
-
-                // Execute downstream middleware and catch any exceptions they throw
-                await _next(context);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Unhandled exception in JwtMiddleware while processing request {Path}", context?.Request?.Path);
-
-                try
-                {
-                    if (!context.Response.HasStarted)
-                    {
-                        context.Response.Clear();
-                        context.Response.StatusCode = 503;
-                        context.Response.ContentType = "application/json";
-                        var payload = "{\"message\":\"Internal server error\"}";
-                        await context.Response.WriteAsync(payload);
-                    }
-                }
-                catch (Exception writeEx)
-                {
-                    _logger?.LogError(writeEx, "Failed while writing error response in JwtMiddleware for request {Path}", context?.Request?.Path);
-                }
+                // Log and continue; do not mask downstream pipeline errors
+                _logger?.LogError(ex, "JwtMiddleware pre-processing failed for request {Path}", context?.Request?.Path);
             }
+
+            // Always continue the pipeline; let downstream middleware/controllers decide
+            await _next(context);
         }
 
         private async Task AttachUserToContext(

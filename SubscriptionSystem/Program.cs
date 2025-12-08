@@ -615,9 +615,9 @@ app.UseRouting();
 // CORS before auth/endpoints
 app.UseCors(app.Environment.IsDevelopment() ? "AllowDevAll" : "AllowSpecificOrigins");
 
-// Auth pipeline
-app.UseMiddleware<JwtMiddleware>();
+// Auth pipeline: authenticate first, then custom JWT enrichment, then authorize
 app.UseAuthentication();
+app.UseMiddleware<JwtMiddleware>();
 app.UseAuthorization();
 // --- End revised ordering ---
 

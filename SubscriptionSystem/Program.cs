@@ -493,9 +493,9 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.WriteIndented = true;
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
-builder.Services.AddAuthentication("Basic")
-    .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("Basic", null);
-// In Program.cs or Startup.cs
+// builder.Services.AddAuthentication("Basic")
+//     .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("Basic", null);
+// // In Program.cs or Startup.cs
 OfficeOpenXml.ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;
 // Add application services
 

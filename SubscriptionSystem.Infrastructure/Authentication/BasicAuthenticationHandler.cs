@@ -1,72 +1,75 @@
-﻿using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using System.Security.Claims;
-using System.Text;
-using System.Text.Encodings.Web;
-using Microsoft.Extensions.Configuration;
-using System.Net.Http.Headers;
-namespace SubscriptionSystem.Infrastructure.Authentication
-{
-    public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
-    {
-        private readonly IConfiguration _configuration;
+﻿// using Microsoft.AspNetCore.Authentication;
+// using Microsoft.AspNetCore.Authentication.Abstractions;
+// using Microsoft.Extensions.Logging;
+// using Microsoft.Extensions.Options;
+// using System.Security.Claims;
+// using System.Text;
+// using System.Text.Encodings.Web;
+// using Microsoft.Extensions.Configuration;
+// using System.Net.Http.Headers;
+// using Microsoft.AspNetCore.Authentication;
 
-        public BasicAuthenticationHandler(
-            IOptionsMonitor<AuthenticationSchemeOptions> options,
-            ILoggerFactory logger,
-            UrlEncoder encoder,
-            Microsoft.AspNetCore.Authentication.ISystemClock clock,
-            IConfiguration configuration)
-            : base(options, logger, encoder, clock)
-        {
-            _configuration = configuration;
-        }
+// namespace SubscriptionSystem.Infrastructure.Authentication
+// {
+//     public class BasicAuthenticationHandler : Microsoft.AspNetCore.Authentication.AuthenticationHandler<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions>
+//     {
+//         private readonly IConfiguration _configuration;
 
-        protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
-        {
-            if (!Context.Request.Headers.ContainsKey("Authorization"))
-                return AuthenticateResult.Fail("Missing Authorization Header");
+//         public BasicAuthenticationHandler(
+//             Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions> options,
+//             Microsoft.Extensions.Logging.ILoggerFactory logger,
+//             System.Text.Encodings.Web.UrlEncoder encoder,
+//             Microsoft.AspNetCore.Authentication.Abstractions.ISystemClock clock,
+//             Microsoft.Extensions.Configuration.IConfiguration configuration)
+//             : base(options, logger, encoder, clock)
+//         {
+//             _configuration = configuration;
+//         }
 
-            try
-            {
-                var authHeader = AuthenticationHeaderValue.Parse(Context.Request.Headers["Authorization"]);
-                if (authHeader.Scheme != "Basic")
-                    return AuthenticateResult.Fail("Invalid Authorization Scheme");
+//         protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
+//         {
+//             if (!Context.Request.Headers.ContainsKey("Authorization"))
+//                 return AuthenticateResult.Fail("Missing Authorization Header");
 
-                var credentialBytes = Convert.FromBase64String(authHeader.Parameter);
-                var credentials = Encoding.UTF8.GetString(credentialBytes).Split(':', 2);
-                if (credentials.Length != 2)
-                    return AuthenticateResult.Fail("Invalid Authorization Header");
+//             try
+//             {
+//                 var authHeader = AuthenticationHeaderValue.Parse(Context.Request.Headers["Authorization"]);
+//                 if (authHeader.Scheme != "Basic")
+//                     return AuthenticateResult.Fail("Invalid Authorization Scheme");
 
-                var username = credentials[0];
-                var password = credentials[1];
+//                 var credentialBytes = Convert.FromBase64String(authHeader.Parameter);
+//                 var credentials = Encoding.UTF8.GetString(credentialBytes).Split(':', 2);
+//                 if (credentials.Length != 2)
+//                     return AuthenticateResult.Fail("Invalid Authorization Header");
 
-                if (IsAuthorized(username, password))
-                {
-                    var claims = new[] { new Claim(ClaimTypes.Name, username) };
-                    var identity = new ClaimsIdentity(claims, Scheme.Name);
-                    var principal = new ClaimsPrincipal(identity);
-                    var ticket = new AuthenticationTicket(principal, Scheme.Name);
+//                 var username = credentials[0];
+//                 var password = credentials[1];
 
-                    return AuthenticateResult.Success(ticket);
-                }
+//                 if (IsAuthorized(username, password))
+//                 {
+//                     var claims = new[] { new Claim(ClaimTypes.Name, username) };
+//                     var identity = new ClaimsIdentity(claims, Scheme.Name);
+//                     var principal = new ClaimsPrincipal(identity);
+//                     var ticket = new AuthenticationTicket(principal, Scheme.Name);
 
-                return AuthenticateResult.Fail("Invalid username or password");
-            }
-            catch
-            {
-                return AuthenticateResult.Fail("Invalid Authorization Header");
-            }
-        }
+//                     return AuthenticateResult.Success(ticket);
+//                 }
 
-        private bool IsAuthorized(string username, string password)
-        {
-            var configUsername = _configuration["BasicAuth:Username"];
-            var configPassword = _configuration["BasicAuth:Password"];
+//                 return AuthenticateResult.Fail("Invalid username or password");
+//             }
+//             catch
+//             {
+//                 return AuthenticateResult.Fail("Invalid Authorization Header");
+//             }
+//         }
 
-            return username == configUsername && password == configPassword;
-        }
-    }
-}
+//         private bool IsAuthorized(string username, string password)
+//         {
+//             var configUsername = _configuration["BasicAuth:Username"];
+//             var configPassword = _configuration["BasicAuth:Password"];
+
+//             return username == configUsername && password == configPassword;
+//         }
+//     }
+// }
 

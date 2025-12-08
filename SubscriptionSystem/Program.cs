@@ -234,14 +234,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowSpecificOrigins", policy =>
     {
             policy.WithOrigins("http://localhost:3000",
-                               "http://localhost:5279",
-                               "http://127.0.0.1:5279",
                                "https://idansure.com",
-                               "https://www.idansure.com",
-                               "https://idansure.vercel.app",
-                               "https://localhost:7221", 
-                               "https://api.idansure.com", 
-                                "http://api.idansure.com") // Allow only these origins
+                               "https://www.idansure.com"
+                               
+                        ) // Allow only these origins
                                
                   .AllowAnyHeader()
                   .AllowAnyMethod()
@@ -600,7 +596,7 @@ app.UseSwagger(c =>
  app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
-        // c.RoutePrefix = string.Empty;  // Make Swagger UI the default page at root path
+        c.RoutePrefix = string.Empty;  // Make Swagger UI the default page at root path
     });
 // Rate limiting early
 app.UseIpRateLimiting();

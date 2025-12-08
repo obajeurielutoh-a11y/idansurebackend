@@ -493,9 +493,9 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.WriteIndented = true;
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
-// builder.Services.AddAuthentication("Basic")
-//     .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("Basic", null);
-// // In Program.cs or Startup.cs
+builder.Services.AddAuthentication("Basic")
+    .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("Basic", null);
+// In Program.cs or Startup.cs
 OfficeOpenXml.ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;
 // Add application services
 
@@ -596,7 +596,7 @@ app.UseSwagger(c =>
  app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "IdanSureSubscription V1");
-        c.RoutePrefix = string.Empty;  // Make Swagger UI the default page at root path
+        // c.RoutePrefix = string.Empty;  // Make Swagger UI the default page at root path
     });
 // Rate limiting early
 app.UseIpRateLimiting();

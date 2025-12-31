@@ -441,8 +441,8 @@ public class AuthController : ControllerBase
         var cookieSecure = _configuration.GetValue<bool>("Auth:CookieSecure", true);
         var cookieDomain = _configuration.GetValue<string>("Auth:CookieDomain", null);
         var cookiePath = _configuration.GetValue<string>("Auth:CookiePath", "/");
-        var tokenExpiry = _configuration.GetValue<int>("Auth:TokenExpiryMinutes", 30);
-        var refreshTokenExpiry = _configuration.GetValue<int>("Auth:RefreshTokenExpiryDays", 7);
+        var tokenExpiry = _configuration.GetValue<int>("Auth:TokenExpiryMinutes", 60);
+        var refreshTokenExpiry = _configuration.GetValue<int>("Auth:RefreshTokenExpiryDays", 2);
 
         // Set JWT token cookie
         Response.Cookies.Append("token", token, new CookieOptions

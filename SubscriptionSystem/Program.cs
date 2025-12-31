@@ -468,6 +468,10 @@ builder.Services.AddSession(options =>
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
 
+    // Enforce secure cookies for session in production
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+
 });
 builder.Services.AddHttpContextAccessor();
 // Register custom authorization handlers
@@ -477,7 +481,19 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("ApiKeyPolicy", policy =>
         policy.Requirements.Add(new ApiKeyRequirement()));
-
+})
+    .AddCookie(options =>
+    {
+        // Respect configuration but enforce HTTPS-only cookies in production
+        var cookieDomain = builder.Configuration["Auth:CookieDomain"];
+        var cookiePath = builder.Configuration["Auth:CookiePath"] ?? "/";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.IsEssential = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Strict;
+        options.Cookie.Domain = !string.IsNullOrEmpty(cookieDomain) ? cookieDomain : null;
+        options.Cookie.Path = cookiePath;
+    })
     // Require X-User-Id header to match NameIdentifier and token_type=user
     options.AddPolicy("UserWithIdHeader", policy =>
         policy.RequireAuthenticatedUser()

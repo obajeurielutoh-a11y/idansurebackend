@@ -73,8 +73,6 @@ namespace SubscriptionSystem.Infrastructure.Services
                 MatchDate = matchDate,
                 MatchDetails = matchDetails?.Trim() ?? string.Empty,
                 NonAlphanumericDetails = string.Empty,
-                Team1Performance = new TeamPerformanceDto(),
-                Team2Performance = new TeamPerformanceDto(),
                 ConfidenceLevel = confidence,
                 PredictedOutcome = predictedOutcome?.Trim() ?? string.Empty
             };

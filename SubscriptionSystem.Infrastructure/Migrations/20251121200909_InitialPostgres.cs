@@ -124,16 +124,7 @@ namespace SubscriptionSystem.Infrastructure.Migrations
                     IsPromotional = table.Column<bool>(type: "boolean", nullable: false),
                     Outcome = table.Column<int>(type: "integer", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    Team1Performance_RecentWins = table.Column<int>(type: "integer", nullable: false),
-                    Team1Performance_RecentLosses = table.Column<int>(type: "integer", nullable: false),
-                    Team1Performance_AverageGoalsScored = table.Column<double>(type: "double precision", nullable: false),
-                    Team1Performance_AverageGoalsConceded = table.Column<double>(type: "double precision", nullable: false),
-                    Team1Performance_KeyPlayersStatus = table.Column<string>(type: "text", nullable: false),
-                    Team2Performance_RecentWins = table.Column<int>(type: "integer", nullable: false),
-                    Team2Performance_RecentLosses = table.Column<int>(type: "integer", nullable: false),
-                    Team2Performance_AverageGoalsScored = table.Column<double>(type: "double precision", nullable: false),
-                    Team2Performance_AverageGoalsConceded = table.Column<double>(type: "double precision", nullable: false),
-                    Team2Performance_KeyPlayersStatus = table.Column<string>(type: "text", nullable: false),
+                   
                     ConfidenceLevel = table.Column<int>(type: "integer", nullable: false),
                     PredictedOutcome = table.Column<string>(type: "text", nullable: false)
                 },

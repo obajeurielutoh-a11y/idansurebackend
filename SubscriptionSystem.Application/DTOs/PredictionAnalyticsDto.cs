@@ -21,5 +21,7 @@ namespace SubscriptionSystem.Application.DTOs
         public double OverallSuccessRate { get; set; }
         public double TrendSlope { get; set; }
         public string? OpenAIAnalysis { get; set; }
+        public string? Summary { get; set; }
+        public string? Forecast { get; set; }
     }
 }

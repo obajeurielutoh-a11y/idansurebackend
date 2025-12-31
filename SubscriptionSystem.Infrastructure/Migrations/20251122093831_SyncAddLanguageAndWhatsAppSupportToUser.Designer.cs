@@ -762,73 +762,7 @@ namespace SubscriptionSystem.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("SubscriptionSystem.Domain.Entities.Prediction", b =>
-                {
-                    b.OwnsOne("SubscriptionSystem.Domain.Entities.TeamPerformance", "Team1Performance", b1 =>
-                        {
-                            b1.Property<Guid>("PredictionId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<double>("AverageGoalsConceded")
-                                .HasColumnType("double precision");
-
-                            b1.Property<double>("AverageGoalsScored")
-                                .HasColumnType("double precision");
-
-                            b1.Property<string>("KeyPlayersStatus")
-                                .IsRequired()
-                                .HasColumnType("text");
-
-                            b1.Property<int>("RecentLosses")
-                                .HasColumnType("integer");
-
-                            b1.Property<int>("RecentWins")
-                                .HasColumnType("integer");
-
-                            b1.HasKey("PredictionId");
-
-                            b1.ToTable("Predictions");
-
-                            b1.WithOwner()
-                                .HasForeignKey("PredictionId");
-                        });
-
-                    b.OwnsOne("SubscriptionSystem.Domain.Entities.TeamPerformance", "Team2Performance", b1 =>
-                        {
-                            b1.Property<Guid>("PredictionId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<double>("AverageGoalsConceded")
-                                .HasColumnType("double precision");
-
-                            b1.Property<double>("AverageGoalsScored")
-                                .HasColumnType("double precision");
-
-                            b1.Property<string>("KeyPlayersStatus")
-                                .IsRequired()
-                                .HasColumnType("text");
-
-                            b1.Property<int>("RecentLosses")
-                                .HasColumnType("integer");
-
-                            b1.Property<int>("RecentWins")
-                                .HasColumnType("integer");
-
-                            b1.HasKey("PredictionId");
-
-                            b1.ToTable("Predictions");
-
-                            b1.WithOwner()
-                                .HasForeignKey("PredictionId");
-                        });
-
-                    b.Navigation("Team1Performance")
-                        .IsRequired();
-
-                    b.Navigation("Team2Performance")
-                        .IsRequired();
-                });
-
+            
             modelBuilder.Entity("SubscriptionSystem.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("SubscriptionSystem.Domain.Entities.User", "User")

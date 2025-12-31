@@ -54,8 +54,6 @@ namespace SubscriptionSystem.Infrastructure.Data
 
             modelBuilder.Entity<Prediction>(entity =>
             {
-                entity.OwnsOne(p => p.Team1Performance);
-                entity.OwnsOne(p => p.Team2Performance);
                 entity.Property(p => p.NonAlphanumericDetails).IsRequired(false);
             });
             modelBuilder.Entity<StandardizedTransaction>()

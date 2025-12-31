@@ -119,6 +119,10 @@ builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.WhatsAppAd
 builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.WhatsAppAdminPredictionService>();
 // Prediction notification service (sends WhatsApp updates to active subscribers)
 builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.PredictionNotificationService>();
+// PraisonAI WhatsApp Agent service (verifies numbers, manages agent-driven notifications)
+builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.PraisonAIWhatsAppAgentService>();
+// WhatsApp MCP adapter for creating/verifying MCP recipients
+builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.WhatsAppMCPAdapter>();
 // Webhook replay protector (uses IDistributedCache - Redis if configured)
 builder.Services.AddScoped<SubscriptionSystem.Infrastructure.Services.WebhookReplayProtector>();
 builder.Services.AddScoped<IDomainEventHandler<SubscriptionSystem.Domain.Events.SubscriptionActivatedEvent>, SubscriptionSystem.Application.Services.Handlers.SubscriptionActivatedHandler>();

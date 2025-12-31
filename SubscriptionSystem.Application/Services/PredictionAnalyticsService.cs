@@ -18,13 +18,15 @@ namespace SubscriptionSystem.Application.Services
     public class PredictionAnalyticsService : IPredictionAnalyticsService
     {
         private readonly IPredictionRepository _predictionRepository;
+        private readonly SubscriptionSystem.Application.Interfaces.IAsedeyhotPredictionRepository _asedeyhotRepository;
         private readonly IConfiguration _configuration;
         private readonly ILogger<PredictionAnalyticsService> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
 
-        public PredictionAnalyticsService(IPredictionRepository predictionRepository, IConfiguration configuration, ILogger<PredictionAnalyticsService> logger, IHttpClientFactory httpClientFactory)
+        public PredictionAnalyticsService(IPredictionRepository predictionRepository, SubscriptionSystem.Application.Interfaces.IAsedeyhotPredictionRepository asedeyhotRepository, IConfiguration configuration, ILogger<PredictionAnalyticsService> logger, IHttpClientFactory httpClientFactory)
         {
             _predictionRepository = predictionRepository;
+            _asedeyhotRepository = asedeyhotRepository;
             _configuration = configuration;
             _logger = logger;
             _httpClientFactory = httpClientFactory;
@@ -35,12 +37,13 @@ namespace SubscriptionSystem.Application.Services
             // Fetch predictions for the month via repository paging (we'll request large page sizes to get everything)
             var daily = new Dictionary<DateTime, (int wins, int losses)>();
 
+            // Aggregate from detailed predictions
             int page = 1;
             const int pageSize = 1000;
             while (true)
             {
                 var (predictions, pageTotal) = await _predictionRepository.GetPredictionsAsync(page, pageSize);
-                var monthItems = predictions.Where(p => p.CreatedAt.Year == year && p.CreatedAt.Month == month);
+                var monthItems = predictions?.Where(p => p.CreatedAt.Year == year && p.CreatedAt.Month == month) ?? Enumerable.Empty<SubscriptionSystem.Domain.Entities.Prediction>();
                 foreach (var p in monthItems)
                 {
                     var d = p.CreatedAt.Date;
@@ -49,9 +52,25 @@ namespace SubscriptionSystem.Application.Services
                     else if (p.Outcome == DomainMatchOutcome.Loss) daily[d] = (daily[d].wins, daily[d].losses + 1);
                 }
 
-                // break when fewer than pageSize returned
                 if (predictions == null || predictions.Count() < pageSize) break;
                 page++;
+            }
+
+            // Aggregate from Asedeyhot predictions
+            try
+            {
+                var asedeyhot = await _asedeyhotRepository.GetPredictionsAsync(1, int.MaxValue);
+                foreach (var a in asedeyhot.Where(p => p.CreatedAt.Year == year && p.CreatedAt.Month == month))
+                {
+                    var d = a.CreatedAt.Date;
+                    if (!daily.ContainsKey(d)) daily[d] = (0, 0);
+                    if (a.IsWin == true) daily[d] = (daily[d].wins + 1, daily[d].losses);
+                    else if (a.IsWin == false) daily[d] = (daily[d].wins, daily[d].losses + 1);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to aggregate Asedeyhot predictions for analytics");
             }
 
             // build DTO
@@ -84,6 +103,32 @@ namespace SubscriptionSystem.Application.Services
             var xs = metrics.Select((m, idx) => (double)idx).ToArray();
             var ys = metrics.Select(m => m.SuccessRate).ToArray();
             dto.TrendSlope = CalculateSlope(xs, ys);
+
+            // Summary and simple forecast based on aggregates
+            dto.Summary = totalWins + totalLosses == 0
+                ? "No predictions recorded for the month." 
+                : $"Total predictions: {overallTotal}, Wins: {totalWins}, Losses: {totalLosses}, SuccessRate: {Math.Round(dto.OverallSuccessRate,2)}%.";
+
+            if (overallTotal == 0)
+            {
+                dto.Forecast = "Insufficient data to forecast performance.";
+            }
+            else if (dto.TrendSlope > 0.001 && dto.OverallSuccessRate >= 50)
+            {
+                dto.Forecast = "Performance is improving and likely to continue improving.";
+            }
+            else if (dto.TrendSlope > 0)
+            {
+                dto.Forecast = "Early signs of improvement; continue monitoring.";
+            }
+            else if (dto.TrendSlope < 0)
+            {
+                dto.Forecast = "Performance is declining; consider model tuning or data review.";
+            }
+            else
+            {
+                dto.Forecast = "Performance is flat; no clear trend detected.";
+            }
 
             // Optionally ask OpenAI for a human summary (if key present)
             var openAiKey = _configuration["OpenAI__ApiKey"] ?? _configuration["OpenAI:ApiKey"];

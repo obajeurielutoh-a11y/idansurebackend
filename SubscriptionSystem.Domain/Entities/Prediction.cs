@@ -19,21 +19,12 @@ namespace SubscriptionSystem.Domain.Entities
         public bool IsPromotional { get; set; }
         public MatchOutcome? Outcome { get; set; }
         public DateTime CreatedAt { get; set; }
-
-        public TeamPerformance Team1Performance { get; set; }
-        public TeamPerformance Team2Performance { get; set; }
+        // Team performance details were removed from the model and DB
         public int ConfidenceLevel { get; set; }
         public string PredictedOutcome { get; set; }
     }
 
-    public class TeamPerformance
-    {
-        public int RecentWins { get; set; }
-        public int RecentLosses { get; set; }
-        public double AverageGoalsScored { get; set; }
-        public double AverageGoalsConceded { get; set; }
-        public string KeyPlayersStatus { get; set; }
-    }
+
 
     public enum MatchOutcome
     {

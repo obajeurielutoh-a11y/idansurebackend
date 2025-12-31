@@ -22,11 +22,7 @@ namespace SubscriptionSystem.Application.DTOs
 
         public string NonAlphanumericDetails { get; set; }
 
-        [Required]
-        public TeamPerformanceDto Team1Performance { get; set; }
 
-        [Required]
-        public TeamPerformanceDto Team2Performance { get; set; }
 
         [Required]
         [Range(0, 100)]
@@ -36,21 +32,6 @@ namespace SubscriptionSystem.Application.DTOs
         public string PredictedOutcome { get; set; }
     }
 
-    public class TeamPerformanceDto
-    {
-        [Required]
-        public int RecentWins { get; set; }
 
-        [Required]
-        public int RecentLosses { get; set; }
-
-        [Required]
-        public double AverageGoalsScored { get; set; }
-
-        [Required]
-        public double AverageGoalsConceded { get; set; }
-
-        public string KeyPlayersStatus { get; set; }
-    }
 }
 

@@ -19,20 +19,23 @@ namespace SubscriptionSystem.API.Controllers
         }
 
         [HttpGet("monthly")]
-        public async Task<IActionResult> GetMonthly([FromQuery] int year, [FromQuery] int month)
+        public async Task<IActionResult> GetMonthly([FromQuery] int? year, [FromQuery] int? month)
         {
-            if (year <= 0 || month < 1 || month > 12)
+            var now = DateTime.UtcNow;
+            var useYear = year ?? now.Year;
+            var useMonth = month ?? now.Month;
+
+            if (useYear <= 0 || useMonth < 1 || useMonth > 12)
                 return BadRequest(new { message = "Invalid year/month" });
 
             try
             {
-                var result = await _analytics.GetMonthlyAnalyticsAsync(year, month);
+                var result = await _analytics.GetMonthlyAnalyticsAsync(useYear, useMonth);
                 return Ok(result);
             }
             catch (System.Exception ex)
             {
-                _logger.LogError(ex, "Analytics GetMonthly failed for {Year}/{Month}", year, month);
-                // Return a safe non-500 response so callers get a JSON error instead of an empty 500
+                _logger.LogError(ex, "Analytics GetMonthly failed for {Year}/{Month}", useYear, useMonth);
                 return StatusCode(503, new { message = "Analytics temporarily unavailable", details = ex.Message });
             }
         }

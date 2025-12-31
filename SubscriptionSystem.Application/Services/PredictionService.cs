@@ -45,22 +45,6 @@ namespace SubscriptionSystem.Application.Services
                 IsPromotional = false,
                 CreatedAt = DateTime.UtcNow,
                 Outcome = Domain.Entities.MatchOutcome.Pending, // Set initial outcome to Pending
-                Team1Performance = new TeamPerformance
-                {
-                    RecentWins = predictionDto.Team1Performance.RecentWins,
-                    RecentLosses = predictionDto.Team1Performance.RecentLosses,
-                    AverageGoalsScored = predictionDto.Team1Performance.AverageGoalsScored,
-                    AverageGoalsConceded = predictionDto.Team1Performance.AverageGoalsConceded,
-                    KeyPlayersStatus = predictionDto.Team1Performance.KeyPlayersStatus
-                },
-                Team2Performance = new TeamPerformance
-                {
-                    RecentWins = predictionDto.Team2Performance.RecentWins,
-                    RecentLosses = predictionDto.Team2Performance.RecentLosses,
-                    AverageGoalsScored = predictionDto.Team2Performance.AverageGoalsScored,
-                    AverageGoalsConceded = predictionDto.Team2Performance.AverageGoalsConceded,
-                    KeyPlayersStatus = predictionDto.Team2Performance.KeyPlayersStatus
-                },
                 ConfidenceLevel = predictionDto.ConfidenceLevel,
                 PredictedOutcome = predictionDto.PredictedOutcome
             };
@@ -228,22 +212,6 @@ namespace SubscriptionSystem.Application.Services
             prediction.MatchDate = dto.MatchDate;
             prediction.MatchDetails = dto.MatchDetails;
             prediction.NonAlphanumericDetails = dto.NonAlphanumericDetails ?? "Default Value";
-            prediction.Team1Performance = new TeamPerformance
-            {
-                RecentWins = dto.Team1Performance.RecentWins,
-                RecentLosses = dto.Team1Performance.RecentLosses,
-                AverageGoalsScored = dto.Team1Performance.AverageGoalsScored,
-                AverageGoalsConceded = dto.Team1Performance.AverageGoalsConceded,
-                KeyPlayersStatus = dto.Team1Performance.KeyPlayersStatus
-            };
-            prediction.Team2Performance = new TeamPerformance
-            {
-                RecentWins = dto.Team2Performance.RecentWins,
-                RecentLosses = dto.Team2Performance.RecentLosses,
-                AverageGoalsScored = dto.Team2Performance.AverageGoalsScored,
-                AverageGoalsConceded = dto.Team2Performance.AverageGoalsConceded,
-                KeyPlayersStatus = dto.Team2Performance.KeyPlayersStatus
-            };
             prediction.ConfidenceLevel = dto.ConfidenceLevel;
             prediction.PredictedOutcome = dto.PredictedOutcome;
         }
@@ -258,22 +226,6 @@ namespace SubscriptionSystem.Application.Services
                 MatchDate = prediction.MatchDate,
                 MatchDetails = prediction.MatchDetails,
                 NonAlphanumericDetails = prediction.NonAlphanumericDetails ?? "Default Value",
-                Team1Performance = new TeamPerformanceDto
-                {
-                    RecentWins = prediction.Team1Performance.RecentWins,
-                    RecentLosses = prediction.Team1Performance.RecentLosses,
-                    AverageGoalsScored = prediction.Team1Performance.AverageGoalsScored,
-                    AverageGoalsConceded = prediction.Team1Performance.AverageGoalsConceded,
-                    KeyPlayersStatus = prediction.Team1Performance.KeyPlayersStatus
-                },
-                Team2Performance = new TeamPerformanceDto
-                {
-                    RecentWins = prediction.Team2Performance.RecentWins,
-                    RecentLosses = prediction.Team2Performance.RecentLosses,
-                    AverageGoalsScored = prediction.Team2Performance.AverageGoalsScored,
-                    AverageGoalsConceded = prediction.Team2Performance.AverageGoalsConceded,
-                    KeyPlayersStatus = prediction.Team2Performance.KeyPlayersStatus
-                },
                 ConfidenceLevel = prediction.ConfidenceLevel,
                 PredictedOutcome = prediction.PredictedOutcome
             };

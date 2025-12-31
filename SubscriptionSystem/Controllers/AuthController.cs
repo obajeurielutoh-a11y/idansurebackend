@@ -367,8 +367,7 @@ public class AuthController : ControllerBase
 
         if (result.IsSuccess)
         {
-            SetAuthCookies(result.Data.Token, "access_token");
-            SetAuthCookies(result.Data.RefreshToken, "refresh_token");
+            SetAuthCookies(result.Data.Token, result.Data.RefreshToken);
 
           
 
@@ -524,8 +523,7 @@ public class AuthController : ControllerBase
             }
 
             // Set cookies
-            SetAuthCookies(result.Data.Token, "access_token");
-            SetAuthCookies(result.Data.RefreshToken, "refresh_token");
+            SetAuthCookies(result.Data.Token, result.Data.RefreshToken);
 
             // Redirect to frontend with success
             return Redirect($"{_configuration["Frontend:BaseUrl"]}/dashboard");

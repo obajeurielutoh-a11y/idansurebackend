@@ -165,7 +165,7 @@ namespace SubscriptionSystem.API.Controllers
         }
 
         [HttpPost("DetailedPrediction")]
-        [Authorize(AuthenticationSchemes = "Basic")]
+        // [Authorize(AuthenticationSchemes = "Basic")]
         public async Task<IActionResult> PostDetailedPrediction([FromBody] DetailedPredictionDto predictionDto)
         {
             if (!ModelState.IsValid)

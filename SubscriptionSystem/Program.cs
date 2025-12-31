@@ -237,11 +237,11 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigins", policy =>
     {
-            policy.WithOrigins("http://localhost:3000",
-                               "https://idansure.com",
-                               "https://www.idansure.com"
-                               
-                        ) // Allow only these origins
+                 policy.WithOrigins("http://localhost:3000",
+                           "https://idansure.com",
+                           "https://www.idansure.com",
+                           "https://prod.idansure.com"
+                       ) // Allow only these origins
                                
                   .AllowAnyHeader()
                   .AllowAnyMethod()

@@ -15,11 +15,13 @@ public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly IConfiguration _configuration;
+    private readonly SubscriptionSystem.Application.Interfaces.IRefreshTokenService _refreshTokenService;
 
-    public AuthController(IAuthService authService, IConfiguration configuration)
+    public AuthController(IAuthService authService, IConfiguration configuration, SubscriptionSystem.Application.Interfaces.IRefreshTokenService refreshTokenService)
     {
         _authService = authService;
         _configuration = configuration;
+        _refreshTokenService = refreshTokenService;
     }
     [HttpPost("set-password-for-social")]
     [Authorize(AuthenticationSchemes = "Bearer")]
@@ -260,6 +262,28 @@ public class AuthController : ControllerBase
         SetAuthCookies(result.Data.Token, result.Data.RefreshToken);
 
         return Ok(new { message = "Token refreshed successfully", token = result.Data.Token });
+    }
+
+    public class RevokeRequestDto { public string Token { get; set; } }
+
+    [HttpPost("revoke")]
+    public async Task<IActionResult> Revoke([FromBody] RevokeRequestDto request)
+    {
+        string token = request?.Token;
+        if (string.IsNullOrEmpty(token))
+        {
+            Request.Cookies.TryGetValue("refreshToken", out token);
+        }
+
+        if (string.IsNullOrEmpty(token))
+            return BadRequest(new { message = "Refresh token is required." });
+
+        await _refreshTokenService.RevokeRefreshTokenAsync(token, Request.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown");
+
+        // Clear cookies
+        ClearAuthCookies();
+
+        return Ok(new { message = "Refresh token revoked." });
     }
 
     [HttpPost("forgot-password")]

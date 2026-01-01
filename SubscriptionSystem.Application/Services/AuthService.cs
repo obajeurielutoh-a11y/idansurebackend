@@ -18,18 +18,20 @@ namespace SubscriptionSystem.Application.Services
         private readonly IEmailService _emailService;
         private readonly IUserRepository _userRepository;
         private readonly ITokenService _tokenService;
+        private readonly IRefreshTokenService _refreshTokenService;
 
         public AuthService(
          IConfiguration configuration,
          IEmailService emailService,
          IUserRepository userRepository,
-         ITokenService tokenService)
+         ITokenService tokenService,
+         IRefreshTokenService refreshTokenService)
         {
             _configuration = configuration;
             _emailService = emailService;
             _userRepository = userRepository;
             _tokenService = tokenService;
-          
+            _refreshTokenService = refreshTokenService;
         }
 
         public async Task<ServiceResult<bool>> SetPasswordForSocialUserAsync(string userId, SetPasswordForSocialUserDto request)
@@ -321,10 +323,11 @@ namespace SubscriptionSystem.Application.Services
 
             // Generate tokens immediately
             var token = GenerateJwtToken(newUser);
-            var refreshToken = GenerateRefreshToken();
+            var refreshToken = await _refreshTokenService.CreateRefreshTokenAsync(newUser.Id, "system");
 
-            newUser.RefreshToken = refreshToken;
-            newUser.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+            // Keep legacy user fields null/empty; refresh tokens are stored in RefreshTokens table
+            newUser.RefreshToken = null;
+            newUser.RefreshTokenExpiryTime = null;
             await _userRepository.UpdateUserAsync(newUser);
 
             // Send welcome email instead of OTP
@@ -493,18 +496,24 @@ namespace SubscriptionSystem.Application.Services
         }
         public async Task<ServiceResult<RefreshTokenResponseDto>> RefreshTokenAsync(string refreshToken)
         {
-            var user = await _userRepository.GetUserByRefreshTokenAsync(refreshToken);
-            if (user == null || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+            // Validate provided refresh token against stored hashed tokens
+            var validated = await _refreshTokenService.ValidateRefreshTokenAsync(refreshToken);
+            if (!validated.Success || string.IsNullOrEmpty(validated.UserId))
+            {
+                return new ServiceResult<RefreshTokenResponseDto> { IsSuccess = false, ErrorMessage = "Invalid refresh token." };
+            }
+
+            var user = await _userRepository.GetUserByIdAsync(validated.UserId);
+            if (user == null)
             {
                 return new ServiceResult<RefreshTokenResponseDto> { IsSuccess = false, ErrorMessage = "Invalid refresh token." };
             }
 
             var newToken = GenerateJwtToken(user);
-            var newRefreshToken = GenerateRefreshToken();
+            var newRefreshToken = await _refreshTokenService.CreateRefreshTokenAsync(user.Id, "system");
 
-            user.RefreshToken = newRefreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-            await _userRepository.UpdateUserAsync(user);
+            // Revoke the old refresh token
+            await _refreshTokenService.RevokeRefreshTokenAsync(refreshToken, "system");
 
             return new ServiceResult<RefreshTokenResponseDto>
             {
@@ -663,38 +672,7 @@ namespace SubscriptionSystem.Application.Services
             return await CompleteSignInAsync(user);
         }
 
-        //public async Task<ServiceResult<SignInResponseDto>> SignInWithGoogleAsync(GoogleSignInDto googleSignInDto)
-        //{
-        //    try
-        //    {
-        //        var payload = await GoogleJsonWebSignature.ValidateAsync(googleSignInDto.IdToken, new GoogleJsonWebSignature.ValidationSettings
-        //        {
-        //            Audience = new[] { _configuration["Google:ClientId"] }
-        //        });
 
-        //        var user = await _userRepository.GetUserByEmailAsync(payload.Email);
-        //        if (user == null)
-        //        {
-        //            // Create a new user if they don't exist
-        //            user = new User
-        //            {
-        //                Id = Guid.NewGuid().ToString(),
-        //                Email = payload.Email,
-                       
-        //                Role = "User",
-        //                IsActive = true,
-        //                CreatedAt = DateTime.UtcNow
-        //            };
-        //            await _userRepository.CreateUserAsync(user);
-        //        }
-
-        //        return await CompleteSignInAsync(user);
-        //    }
-        //    catch (InvalidJwtException)
-        //    {
-        //        return new ServiceResult<SignInResponseDto> { IsSuccess = false, ErrorMessage = "Invalid Google token." };
-        //    }
-        //}
 
         public async Task<ServiceResult<bool>> VerifyOtpResetAsync(string email, string otp)
         {
@@ -754,10 +732,11 @@ namespace SubscriptionSystem.Application.Services
         public async Task<ServiceResult<SignInResponseDto>> CompleteSignInAsync(User user)
         {
             var token = GenerateJwtToken(user);
-            var refreshToken = GenerateRefreshToken();
+            var refreshToken = await _refreshTokenService.CreateRefreshTokenAsync(user.Id, "system");
 
-            user.RefreshToken = refreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+            // Keep legacy user fields empty; refresh tokens stored in RefreshTokens table
+            user.RefreshToken = null;
+            user.RefreshTokenExpiryTime = null;
             await _userRepository.UpdateUserAsync(user);
 
             var hasActiveSubscription = await _userRepository.HasActiveSubscriptionAsync(user.Id);

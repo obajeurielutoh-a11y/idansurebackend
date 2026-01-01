@@ -105,6 +105,7 @@ builder.Services.AddScoped<IGroupChatService, GroupChatService>();
 builder.Services.AddScoped<ICommentRepository, CommentRepository>();
 builder.Services.AddScoped<IAuthorizationHandler, ApiKeyAuthorizationHandler>();
 builder.Services.AddScoped<IJwtService, JwtService>();
+builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 // AI Chat Provider (always real OpenAI for runtime)
 builder.Services.AddScoped<IAiChatProvider, OpenAiChatProvider>();
 // Audio (AWS Polly) & Transcription (OpenAI Whisper)
@@ -386,7 +387,18 @@ builder.Services.AddAuthentication(options =>
     options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = GoogleDefaults.AuthenticationScheme;
 })
-.AddCookie()
+.AddCookie(options =>
+{
+    // Respect configuration but enforce HTTPS-only cookies in production
+    var cookieDomain = builder.Configuration["Auth:CookieDomain"];
+    var cookiePath = builder.Configuration["Auth:CookiePath"] ?? "/";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.Domain = !string.IsNullOrEmpty(cookieDomain) ? cookieDomain : null;
+    options.Cookie.Path = cookiePath;
+})
 .AddGoogle(googleOptions =>
 {
     googleOptions.ClientId = builder.Configuration["Authentication:Google:ClientId"]
@@ -476,30 +488,16 @@ builder.Services.AddSession(options =>
 builder.Services.AddHttpContextAccessor();
 // Register custom authorization handlers
 builder.Services.AddSingleton<IAuthorizationHandler, SubscriptionSystem.Infrastructure.Authorization.HeaderMatchesClaimHandler>();
-// Add API key authorization
+// Add API key and header-based authorization policies
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("ApiKeyPolicy", policy =>
         policy.Requirements.Add(new ApiKeyRequirement()));
-})
-    .AddCookie(options =>
-    {
-        // Respect configuration but enforce HTTPS-only cookies in production
-        var cookieDomain = builder.Configuration["Auth:CookieDomain"];
-        var cookiePath = builder.Configuration["Auth:CookiePath"] ?? "/";
-        options.Cookie.HttpOnly = true;
-        options.Cookie.IsEssential = true;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-        options.Cookie.SameSite = SameSiteMode.Strict;
-        options.Cookie.Domain = !string.IsNullOrEmpty(cookieDomain) ? cookieDomain : null;
-        options.Cookie.Path = cookiePath;
-    })
-    // Require X-User-Id header to match NameIdentifier and token_type=user
+
     options.AddPolicy("UserWithIdHeader", policy =>
         policy.RequireAuthenticatedUser()
               .AddRequirements(new SubscriptionSystem.Infrastructure.Authorization.HeaderMatchesClaimRequirement("X-User-Id", ClaimTypes.NameIdentifier, expectedTokenType: "user")));
 
-    // Require X-Admin-Id header to match NameIdentifier and token_type=admin
     options.AddPolicy("AdminWithIdHeader", policy =>
         policy.RequireAuthenticatedUser()
               .RequireRole("Admin", "SuperAdmin")

@@ -323,7 +323,7 @@ namespace SubscriptionSystem.Application.Services
 
             // Generate tokens immediately
             var token = GenerateJwtToken(newUser);
-            var refreshToken = await _refreshTokenService.CreateRefreshTokenAsync(newUser.Id, "system");
+            var refreshToken = await _refreshTokenService.CreateRefreshTokenAsync(newUser.Id, "system", TimeSpan.FromDays(_configuration.GetValue<int>("Auth:RefreshTokenExpiryDays", 7)));
 
             // Keep legacy user fields null/empty; refresh tokens are stored in RefreshTokens table
             newUser.RefreshToken = null;
@@ -510,7 +510,7 @@ namespace SubscriptionSystem.Application.Services
             }
 
             var newToken = GenerateJwtToken(user);
-            var newRefreshToken = await _refreshTokenService.CreateRefreshTokenAsync(user.Id, "system");
+            var newRefreshToken = await _refreshTokenService.CreateRefreshTokenAsync(user.Id, "system", TimeSpan.FromDays(_configuration.GetValue<int>("Auth:RefreshTokenExpiryDays", 7)));
 
             // Revoke the old refresh token
             await _refreshTokenService.RevokeRefreshTokenAsync(refreshToken, "system");
@@ -732,7 +732,7 @@ namespace SubscriptionSystem.Application.Services
         public async Task<ServiceResult<SignInResponseDto>> CompleteSignInAsync(User user)
         {
             var token = GenerateJwtToken(user);
-            var refreshToken = await _refreshTokenService.CreateRefreshTokenAsync(user.Id, "system");
+            var refreshToken = await _refreshTokenService.CreateRefreshTokenAsync(user.Id, "system", TimeSpan.FromDays(_configuration.GetValue<int>("Auth:RefreshTokenExpiryDays", 7)));
 
             // Keep legacy user fields empty; refresh tokens stored in RefreshTokens table
             user.RefreshToken = null;

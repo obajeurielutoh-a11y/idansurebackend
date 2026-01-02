@@ -464,27 +464,29 @@ public class AuthController : ControllerBase
         // Get cookie settings from configuration
         var cookieSecure = _configuration.GetValue<bool>("Auth:CookieSecure", true);
         var cookieDomain = _configuration.GetValue<string>("Auth:CookieDomain", null);
+        // Treat literal "null" string as absent
+        if (!string.IsNullOrEmpty(cookieDomain) && cookieDomain.Trim().ToLowerInvariant() == "null") cookieDomain = null;
         var cookiePath = _configuration.GetValue<string>("Auth:CookiePath", "/");
         var tokenExpiry = _configuration.GetValue<int>("Auth:TokenExpiryMinutes", 60);
         var refreshTokenExpiry = _configuration.GetValue<int>("Auth:RefreshTokenExpiryDays", 2);
 
-        // Set JWT token cookie
+        // Set JWT token cookie (accessible only via cookie for browser flows)
         Response.Cookies.Append("token", token, new CookieOptions
         {
             HttpOnly = true,
-            Secure = cookieSecure, // Should be true in production
-            SameSite = SameSiteMode.Strict,
+            Secure = cookieSecure,
+            SameSite = SameSiteMode.None,
             Domain = cookieDomain,
             Path = cookiePath,
             Expires = DateTime.UtcNow.AddMinutes(tokenExpiry)
         });
 
-        // Set refresh token cookie
+        // Set refresh token cookie (HttpOnly, same-site None for cross-site frontends)
         Response.Cookies.Append("refreshToken", refreshToken, new CookieOptions
         {
             HttpOnly = true,
-            Secure = cookieSecure, // Should be true in production
-            SameSite = SameSiteMode.Strict,
+            Secure = cookieSecure,
+            SameSite = SameSiteMode.None,
             Domain = cookieDomain,
             Path = cookiePath,
             Expires = DateTime.UtcNow.AddDays(refreshTokenExpiry)
@@ -495,6 +497,7 @@ public class AuthController : ControllerBase
     private void ClearAuthCookies()
     {
         var cookieDomain = _configuration.GetValue<string>("Auth:CookieDomain", null);
+        if (!string.IsNullOrEmpty(cookieDomain) && cookieDomain.Trim().ToLowerInvariant() == "null") cookieDomain = null;
         var cookiePath = _configuration.GetValue<string>("Auth:CookiePath", "/");
 
         Response.Cookies.Delete("token", new CookieOptions

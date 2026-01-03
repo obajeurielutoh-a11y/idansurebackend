@@ -50,30 +50,26 @@ namespace SubscriptionSystem.API.Controllers
                 return false;
             }
 
-            // Check if the user is active, has a valid subscription, and has a refresh token
+            // Check if the user is active
             if (!user.IsActive)
             {
                 _logger.LogWarning($"User with email {email} is not active");
                 return false;
             }
 
-    
-
-            if (string.IsNullOrEmpty(user.RefreshToken))
+            // Prefer explicit subscription flags/expiry over authentication tokens for anonymous checks
+            if (user.HasActiveSubscription)
             {
-                _logger.LogWarning($"User with email {email} does not have a refresh token");
-                return false;
+                return true;
             }
 
-            // You might want to add a check for refresh token expiration if you have that information
-            // For example:
-            if (user.RefreshTokenExpiryTime < DateTime.UtcNow)
+            if (user.SubscriptionExpiry.HasValue && user.SubscriptionExpiry.Value > DateTime.UtcNow)
             {
-                _logger.LogWarning($"Refresh token for user with email {email} has expired");
-                return false;
+                return true;
             }
 
-            return true;
+            _logger.LogWarning($"User with email {email} does not have an active subscription");
+            return false;
         }
         [HttpPost("{id}/outcome")]
         [Authorize(AuthenticationSchemes = "Basic")]
